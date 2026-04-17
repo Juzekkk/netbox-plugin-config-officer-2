@@ -5,7 +5,7 @@
 
 This plugin is available only for Cisco devices as for now."""
 
-from extras.plugins import PluginConfig
+from netbox.plugins import PluginConfig
 
 
 class NetboxConfigOfficer(PluginConfig):

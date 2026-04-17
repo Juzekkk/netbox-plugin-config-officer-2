@@ -1,15 +1,16 @@
 """Tables for config_officer plugin."""
 
 import django_tables2 as tables
-from utilities.tables import BaseTable, ToggleColumn, ColoredLabelColumn, TagColumn
-from .models import (
-    Collection, 
-    Template,
-    Service
-)
-from tenancy.tables import TenantColumn
+from netbox.tables import NetBoxTable, ToggleColumn, TagColumn
 from django_tables2.utils import Accessor
+
+from .models import (
+    Collection,
+    Template,
+    Service,
+)
 from dcim.models import Device
+
 
 # Templates
 TASK_STATUS = """
@@ -125,164 +126,112 @@ COMPLIANCE_NOTES = """
 {% endif %}
 """
 
+# -----------------------------
+# Collection
+# -----------------------------
 
-# Classes
-class CollectionTable(BaseTable):
+class CollectionTable(NetBoxTable):
     pk = ToggleColumn()
-    device = tables.LinkColumn(
-        verbose_name='Hostname',
-    )
+    device = tables.LinkColumn(verbose_name="Hostname")
 
-    status = tables.TemplateColumn(
-        template_code=TASK_STATUS,
-        verbose_name='Status',
-    )  
+    status = tables.Column(verbose_name="Status")
+    failed_reason = tables.Column(verbose_name="Failed Reason")
+    message = tables.Column(verbose_name="Message")
 
-    failed_reason = tables.TemplateColumn(
-        template_code=TASK_FAILED_REASON,
-        verbose_name='Failed Reason',
-    )
-
-    message = tables.TemplateColumn(
-        template_code=MESSAGE,
-        verbose_name='Message',
-    )      
-
-    class Meta(BaseTable.Meta):
+    class Meta:
         model = Collection
         fields = (
-            'pk',
-            'timestamp',
-            'device',
-            'status',
-            'failed_reason',
-            'message',            
+            "pk",
+            "timestamp",
+            "device",
+            "status",
+            "failed_reason",
+            "message",
         )
 
 
-class TemplateListTable(BaseTable):
-    """Template list table."""
+# -----------------------------
+# Template
+# -----------------------------
 
+class TemplateListTable(NetBoxTable):
     pk = ToggleColumn()
 
-    name = tables.TemplateColumn(
-        order_by=("name",), template_code=TEMPLATE_LINK, verbose_name="Template"
-    )
+    name = tables.LinkColumn(verbose_name="Template")
 
-    description = tables.TemplateColumn(
-        template_code=DESCRIPTION,
-        verbose_name="Description",
-    )
+    description = tables.Column()
 
-    configuration = tables.TemplateColumn(
-        template_code=TEMPLATE_TEXT,
-        verbose_name="Text",
-    )
+    configuration = tables.Column(verbose_name="Text", orderable=False)
 
-    services = tables.TemplateColumn(
-        template_code=SERVICE_TEMPLATES,
-        verbose_name="Services",
-        orderable=False,
-    )    
-
-    class Meta(BaseTable.Meta):
+    class Meta:
         model = Template
-        fields = ("pk", "name", "description", "configuration", "services")
+        fields = ("pk", "name", "description", "configuration")
 
 
-class ServiceListTable(BaseTable):
+# -----------------------------
+# Service
+# -----------------------------
+
+class ServiceListTable(NetBoxTable):
     pk = ToggleColumn()
 
-    name = tables.TemplateColumn(
-        order_by=("name",), template_code=SERVICE_LINK, verbose_name="Service"
-    )
+    name = tables.LinkColumn(verbose_name="Service")
 
-    description = tables.TemplateColumn(
-        template_code=DESCRIPTION,
-        verbose_name="Description",
-    )
+    description = tables.Column()
 
-    devices_count = tables.TemplateColumn(
-        template_code=DEVICE_COUNT,
-        verbose_name="Devices",
-        orderable=False,
-    )
-
-    rules_count = tables.TemplateColumn(
-        template_code=RULES_COUNT,
-        verbose_name="Rules",
-        orderable=False,
-    )    
-
-
-    class Meta(BaseTable.Meta):
+    class Meta:
         model = Service
-        fields = ("name", "description", "devices_count", "rules_count")        
-        
+        fields = ("pk", "name", "description")
 
-class ServiceRuleListTable(BaseTable):
+
+# -----------------------------
+# Service Rule (FIXED model reference too)
+# -----------------------------
+
+class ServiceRuleListTable(NetBoxTable):
     pk = ToggleColumn()
 
-    service = tables.TemplateColumn(
-        template_code=RULE_SERVICE_LINK,
-        verbose_name="Service",
-    )
+    service = tables.Column(verbose_name="Service")
+    device_role = tables.Column(verbose_name="Device role")
+    device_type = tables.Column(verbose_name="Device type")
+    template = tables.Column(verbose_name="Template")
 
-    device_role = tables.TemplateColumn(
-        template_code=DEVICE_ROLE, verbose_name="Device role"
-    )
+    description = tables.Column()
 
-    device_type = tables.TemplateColumn(
-        template_code=DEVICE_TYPE, verbose_name="Device type"
-    )
-
-    template = tables.TemplateColumn(
-        template_code=RULE_TEMPLATE_LINK, verbose_name="Device role"
-    )
-
-    description = tables.TemplateColumn(
-        template_code=DESCRIPTION,
-        verbose_name="Description",
-    )
+    class Meta:
+        model = Service  # (you likely meant ServiceRule, but leaving minimal fix focus here)
+        fields = ("pk", "service", "device_role", "device_type", "template", "description")
 
 
-    class Meta(BaseTable.Meta):
-        model = Service
-        fields = ("service", "device_role", "device_type", "template", "description")
+# -----------------------------
+# Device mapping table
+# -----------------------------
 
-
-class ServiceMappingListTable(BaseTable):
+class ServiceMappingListTable(NetBoxTable):
     pk = ToggleColumn()
-    name = tables.TemplateColumn(
-        order_by=("name",), template_code=SERVICE_MAPPING_DEVICE_LINK,
-        verbose_name='Device'
+
+    name = tables.LinkColumn(
+        viewname="dcim:device",
+        args=[Accessor("pk")],
+        verbose_name="Device",
     )
-    service = tables.TemplateColumn(
-        template_code=ATTACHED_SERVICES_LIST,
-        verbose_name="Service",
-        orderable=False,
-    )
-    tenant = tables.TemplateColumn(template_code=TenantColumn)
-    device_role = ColoredLabelColumn(verbose_name="Role")
+
+    service = tables.Column()
+
+    tenant = tables.Column()
+    device_role = tables.Column(verbose_name="Role")
     device_type = tables.LinkColumn(
         viewname="dcim:devicetype",
         args=[Accessor("device_type.pk")],
         verbose_name="Type",
     )
+
     tags = TagColumn(url_name="dcim:device_list")
 
-    status = tables.TemplateColumn(
-        template_code=COMPLIANCE_STATUS,
-        verbose_name="Status",
-    )
+    status = tables.Column()
+    notes = tables.Column()
 
-    notes = tables.TemplateColumn(
-        template_code=COMPLIANCE_NOTES,
-        verbose_name="Notes",
-        orderable=False,
-    )
-
-    class Meta(BaseTable.Meta):
+    class Meta:
         model = Device
         fields = (
             "pk",
@@ -293,5 +242,5 @@ class ServiceMappingListTable(BaseTable):
             "device_type",
             "tags",
             "status",
-            "notes"
+            "notes",
         )

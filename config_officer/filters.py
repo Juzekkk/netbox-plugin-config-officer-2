@@ -10,10 +10,11 @@ from dcim.models import Device
 from tenancy.filtersets import TenancyFilterSet
 
 
-class CollectionFilter(PrimaryModelFilterSet):
-    q = django_filters.CharFilter(
-        method = 'search'
-    )
+class CollectionFilter(django_filters.FilterSet):
+    q = django_filters.CharFilter(method='search')
+
+    status = django_filters.CharFilter(field_name='status', lookup_expr='icontains')
+    failed_reason = django_filters.CharFilter(field_name='failed_reason', lookup_expr='icontains')
 
     class Meta:
         model = Collection
@@ -22,43 +23,39 @@ class CollectionFilter(PrimaryModelFilterSet):
     def search(self, queryset, name, value):
         if not value.strip():
             return queryset
-        qs_filter = (
-            Q(status__icontains=value)
-            | Q(failed_reason__icontains=value)
+        return queryset.filter(
+            Q(status__icontains=value) |
+            Q(failed_reason__icontains=value)
         )
-        return queryset.filter(qs_filter)
 
 
-class ServiceMappingFilter(PrimaryModelFilterSet, TenancyFilterSet):
-    """Filter for template-compliance records."""
+class ServiceMappingFilter(PrimaryModelFilterSet):
     q = django_filters.CharFilter(
         method='search',
         label='Search device or service',
     )
-    device_type_id = django_filters.ModelMultipleChoiceFilter(
+
+    device_type = django_filters.ModelMultipleChoiceFilter(
+        field_name='device_type__slug',
         queryset=DeviceType.objects.all(),
-        label='Device type (ID)',
+        to_field_name='slug',
+        label='Device type (slug)',
     )
+
     role_id = django_filters.ModelMultipleChoiceFilter(
-        field_name='device_role_id',
+        field_name='role_id',
         queryset=DeviceRole.objects.all(),
         label='Role (ID)',
     )
+
     role = django_filters.ModelMultipleChoiceFilter(
-        field_name='device_role__slug',
+        field_name='role__slug',
         queryset=DeviceRole.objects.all(),
         to_field_name='slug',
         label='Role (slug)',
     )
 
-    device_model = django_filters.ModelMultipleChoiceFilter(
-        field_name='device_type__slug',
-        queryset=DeviceType.objects.all(),
-        to_field_name='slug',
-        label='Device model (slug)',
-    )
-
-    status = django_filters.MultipleChoiceFilter(
+    compliance_status = django_filters.MultipleChoiceFilter(
         field_name='compliance__status',
         choices=ServiceComplianceChoices,
         null_value=None
@@ -68,7 +65,7 @@ class ServiceMappingFilter(PrimaryModelFilterSet, TenancyFilterSet):
 
     class Meta:
         model = Device
-        fields = ['id', 'status', 'name', 'asset_tag', 'device_model']
+        fields = ['id', 'status', 'name', 'asset_tag']
 
     def search(self, queryset, name, value):
         if not value.strip():
