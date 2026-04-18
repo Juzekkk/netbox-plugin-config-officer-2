@@ -1,9 +1,13 @@
-<div class="col-md-12">
-    <div class="row noprint">
-        <ol class="breadcrumb">
-            <li> 1. create <a href="{% url 'plugins:config_officer:template_list' %}">template </a></li>
-            <li> 2. create <a href="{% url 'plugins:config_officer:service_list' %}">service/rule </a></li>
-            <li> 3. assign <a href="{% url 'plugins:config_officer:service_mapping_list' %}">service to device </a></li>
-        </ol>
-    </div>
-</div>
+<nav aria-label="breadcrumb" class="mb-3">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item">
+            1. utwórz <a href="{% url 'plugins:config_officer:template_list' %}">szablon</a>
+        </li>
+        <li class="breadcrumb-item">
+            2. utwórz <a href="{% url 'plugins:config_officer:service_list' %}">serwis/regułę</a>
+        </li>
+        <li class="breadcrumb-item">
+            3. przypisz <a href="{% url 'plugins:config_officer:service_mapping_list' %}">serwis do urządzenia</a>
+        </li>
+    </ol>
+</nav>

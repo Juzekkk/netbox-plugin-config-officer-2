@@ -1,20 +1,17 @@
-{% extends 'base.html' %}
-{% load buttons %}
+{% extends 'base/layout.html' %}
 
-
-
+{% block title %}Collection Message{% endblock %}
 
 {% block content %}
-    <h4>{{ message }} </h4>    
-    <br>
-    <input type="button" class="btn btn-info" value="Collection status" onclick=" relocate_collection_status()">
-
-    <script>
-    function relocate_collection_status()
-    { 
-        location.href = window.location.protocol +"//"+ window.location.hostname + ':' + window.location.port + "/plugins/config_officer/collection_status/"
-    } 
-    </script>
-
+<div class="row">
+    <div class="col">
+        <div class="alert alert-info">
+            <h4 class="alert-heading"><i class="mdi mdi-information-outline"></i> Status</h4>
+            <p class="mb-0">{{ message }}</p>
+        </div>
+        <a href="{% url 'plugins:config_officer:collection_status' %}" class="btn btn-primary">
+            <i class="mdi mdi-format-list-bulleted"></i> Collection status
+        </a>
+    </div>
+</div>
 {% endblock %}
-

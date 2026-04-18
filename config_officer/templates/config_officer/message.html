@@ -1,9 +1,11 @@
-{% extends 'base.html' %}
-{% load buttons %}
+{% extends 'base/layout.html' %}
+
+{% block title %}Collect running-config tasks{% endblock %}
 
 {% block content %}
-{% block title %}Collect running-config tasks{% endblock %}
 <div class="row">
-	<h1>{{ message }}</h1>
+    <div class="col">
+        <h1>{{ message }}</h1>
+    </div>
 </div>
 {% endblock %}
