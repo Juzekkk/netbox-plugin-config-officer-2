@@ -1,6 +1,6 @@
 """There are the purposes of this plugin:
 * Collection Cisco device show-running configuration and save to the local git repo
-* Show diffs in device's configuraions duing the period.
+* Show diffs in device's configurations during the period.
 * Set up device templates and check which devices are compliant with predefined templates.
 
 This plugin is available only for Cisco devices as for now."""
@@ -12,14 +12,12 @@ class NetboxConfigOfficer(PluginConfig):
     name = "config_officer"
     verbose_name = "Config officer"
     description = "Cisco configuration collector and template compliance"
-    version = "0.0.1"
-    author = "Sergei Artemov"
+    version = "0.1.0"
+    author = "Sergei Artemov, Michal Juskiewicz"
+    author_email = "artemov.sergey1989@gmail.com, m.juskiewicz66@gmail.com"
     base_url = "config_officer"
-    author_email = "artemov.sergey1989@gmail.com"
     required_settings = []
     default_settings = {}
-    base_url = "config_officer"
     caching_config = {}
-
 
 config = NetboxConfigOfficer
