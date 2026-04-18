@@ -28,7 +28,7 @@ NETBOX_DEVICES_CONFIGS_DIR = PLUGIN_SETTINGS.get("NETBOX_DEVICES_CONFIGS_DIR", "
 TIME_ZONE = os.environ.get("TIME_ZONE", "UTC")
 NETBOX_DUAL_SIM_PLATFORM = PLUGIN_SETTINGS.get("NETBOX_DUAL_SIM_PLATFORM", "None")
 COLLECT_INTERFACES_DATA = PLUGIN_SETTINGS.get("COLLECT_INTERFACES_DATA", False)
-REGEX_IP = '\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}'
+REGEX_IP = r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}'
 
 PLATFORMS = {
     "iosxe": IOSXEDriver,
@@ -172,20 +172,53 @@ class CiscoDevice:
                 continue
 
 
+    def _parse_show_version_regex(self, output):
+        """Fallback parser for 'show version' when textfsm/ntc_templates is unavailable."""
+        result = {'hostname': '', 'hardware': [''], 'serial': [''], 'version': '', 'platform': '', 'os': ''}
+        for line in output.splitlines():
+            m = re.search(r'^(?:Cisco IOS.*?Version|Version)\s+([\w\.\(\)]+)', line, re.IGNORECASE)
+            if m and not result['version']:
+                result['version'] = m.group(1)
+            m = re.search(r'^(\S+)\s+uptime is', line)
+            if m and not result['hostname']:
+                result['hostname'] = m.group(1)
+            m = re.search(r'[Cc]isco\s+([\w\-]+).*(?:[Pp]rocessor|bytes of)', line)
+            if m and not result['hardware'][0]:
+                result['hardware'] = [m.group(1)]
+                result['platform'] = m.group(1)
+            m = re.search(r'[Pp]rocessor [Bb]oard ID\s+(\S+)', line)
+            if m and not result['serial'][0]:
+                result['serial'] = [m.group(1)]
+                result['sn'] = m.group(1)
+        return result
+
+    def _get_parsed_version(self, connection):
+        """Get parsed show version, using textfsm if available, regex fallback otherwise."""
+        response = connection.send_command("show version")
+        try:
+            parsed_list = response.textfsm_parse_output()
+            if parsed_list:
+                return parsed_list[0]
+        except Exception:
+            pass
+        return self._parse_show_version_regex(response.result)
+
     def get_device_info(self, connection):
         """Gather and parse information from device."""
         if self.platform == 'iosxe':
-            parsed = connection.send_command("show version").textfsm_parse_output()[0]
-            self.hostname = parsed['hostname']
-            self.pid = parsed['hardware'][0]
-            self.sn = parsed['serial'][0]
-            self.sw = parsed['version']
+            parsed = self._get_parsed_version(connection)
+            self.hostname = parsed.get('hostname', '')
+            hw = parsed.get('hardware', [''])
+            self.pid = hw[0] if hw else ''
+            sn = parsed.get('serial', [''])
+            self.sn = sn[0] if sn else ''
+            self.sw = parsed.get('version', '')
         elif self.platform == 'nxos':
-            parsed = connection.send_command("show version").textfsm_parse_output()[0]
-            self.hostname = parsed['hostname']
-            self.pid = parsed['platform']
-            self.sn = parsed['serial']
-            self.sw = parsed['os']
+            parsed = self._get_parsed_version(connection)
+            self.hostname = parsed.get('hostname', '')
+            self.pid = parsed.get('platform', '')
+            self.sn = parsed.get('serial', parsed.get('sn', ''))
+            self.sw = parsed.get('os', parsed.get('version', ''))
         elif self.platform == 'iosxr':
             result = connection.send_command("show version").result
             r_search = re.search(r'\n(.*)uptime', result)
@@ -234,14 +267,13 @@ class CollectDeviceData(CiscoDevice):
 
     # Check if NetBox and Device data are the same
     def check_netbox_sync(self):
+        # Hostname check is intentionally skipped – the device may report a
+        # different hostname (e.g. kernel/OS hostname) than what is stored in
+        # NetBox. We still collect the running config regardless.
+        pass
 
-        if self.hostname_ipam.lower().strip() != self.hostname.lower().strip():
-            raise CollectionException(
-                reason=CollectFailChoices.FAIL_UPDATE,
-                message=f"Different hostnames in NetBox and device. IPAM: {self.hostname_ipam}. Device: {self.hostname}",
-            )
-
-        if self.task.device.serial != "" and self.task.device.serial != self.sn:
+        # Serial number sanity check (only when NetBox has a serial set)
+        if self.task.device.serial and self.sn and self.task.device.serial != self.sn:
             raise CollectionException(
                 reason=CollectFailChoices.FAIL_UPDATE,
                 message=f"Different SN in NetBox and Device. IPAM: {self.task.device.serial}. Device: {self.sn}",
@@ -380,8 +412,7 @@ class CollectDeviceData(CiscoDevice):
         self.check_netbox_sync()
         self.update_in_netbox()
 
-        # save to git repo
-        self.hostname = self.hostname.strip()
-        filename = f"{NETBOX_DEVICES_CONFIGS_DIR}/{self.hostname}_running.txt"
+        # save to git repo – always use the NetBox hostname, not the device-reported one
+        filename = f"{NETBOX_DEVICES_CONFIGS_DIR}/{self.hostname_ipam}_running.txt"
         with PLATFORMS[self.platform](**self.device) as connection:
             self.save_running_config_to_file(connection, filename)
