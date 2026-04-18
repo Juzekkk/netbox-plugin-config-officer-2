@@ -62,9 +62,11 @@ def collect_device_config_task(task_id, commit_msg=""):
     try:
         device_netbox = collect_task.device
         device_netbox.custom_field_data[CF_NAME_COLLECTION_STATUS] = False
-        platform = device_netbox.platform.name
-        if platform is None:
-            platform = DEFAULT_PLATFORM
+        platform = (
+            device_netbox.platform.name
+            if device_netbox.platform is not None
+            else DEFAULT_PLATFORM
+        )
         device_netbox.save()
         ip = str(ipaddress.ip_interface(device_netbox.primary_ip4).ip)
         device_collect = CollectDeviceData(collect_task,
