@@ -13,6 +13,9 @@ from .choices import ServiceComplianceChoices
 from .git_manager import get_device_config, get_days_after_update
 from .config_manager import get_config_diff
 from django.conf import settings
+import logging
+
+logger = logging.getLogger(__name__)
 
 PLUGIN_SETTINGS = settings.PLUGINS_CONFIG.get("config_officer", dict())
 CF_NAME_COLLECTION_STATUS = PLUGIN_SETTINGS.get("CF_NAME_COLLECTION_STATUS", "collection_status")
@@ -41,90 +44,155 @@ def collect_device_config_hostname(hostname):
 
 @job("default")
 def collect_device_config_task(task_id, commit_msg=""):
-    """Worker - collect a particular device."""
+    logger.debug(f"[COLLECT] Task start: task_id={task_id}, commit_msg='{commit_msg}'")
 
-    # Get collection task by pk. If not found - wait a little.
     time.sleep(1)
     try:
         collect_task = Collection.objects.get(id=task_id)
+        logger.debug(f"[COLLECT] Loaded Collection id={task_id}, status={collect_task.status}")
     except Collection.DoesNotExist:
+        logger.warning(f"[COLLECT] Collection not found immediately, retrying task_id={task_id}")
         time.sleep(5)
         collect_task = Collection.objects.get(id=task_id)
+        logger.exception(f"[COLLECT] Loaded after retry task_id={task_id}")
 
     collect_task.status = CollectStatusChoices.STATUS_RUNNING
     collect_task.save()
+    logger.debug(f"[COLLECT] Status set to RUNNING task_id={task_id}")
 
-    if not (commit_msg):
+    if not commit_msg:
         now = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
         commit_msg = f"{now}"
+        logger.debug(f"[COLLECT] Generated commit_msg={commit_msg}")
 
-    # If needed to fill custom fields
     try:
         device_netbox = collect_task.device
+        logger.debug(f"[COLLECT] Device loaded: {device_netbox.name}")
+
         device_netbox.custom_field_data[CF_NAME_COLLECTION_STATUS] = False
+
         platform = (
             device_netbox.platform.name
             if device_netbox.platform is not None
             else DEFAULT_PLATFORM
         )
+
         device_netbox.save()
+        logger.debug(f"[COLLECT] Device saved, platform={platform}")
+
         ip = str(ipaddress.ip_interface(device_netbox.primary_ip4).ip)
-        device_collect = CollectDeviceData(collect_task,
-                                            ip=ip,
-                                            hostname_ipam=str(device_netbox.name),
-                                            platform=platform
-                                        )
+        logger.debug(f"[COLLECT] Parsed IP={ip}")
+
+        device_collect = CollectDeviceData(
+            collect_task,
+            ip=ip,
+            hostname_ipam=str(device_netbox.name),
+            platform=platform
+        )
+
+        logger.debug("[COLLECT] Starting collect_information()")
         device_collect.collect_information()
+        logger.debug("[COLLECT] collect_information() finished")
+
     except CollectionException as exc:
+        logger.error(f"[COLLECT] CollectionException: {exc.reason} | {exc.message}")
+
         collect_task.status = CollectStatusChoices.STATUS_FAILED
         collect_task.failed_reason = exc.reason
         collect_task.message = exc.message
         collect_task.save()
-        if get_active_collect_task_count() < 11:    
-            get_queue("default").enqueue("config_officer.worker.git_commit_configs_changes", commit_msg)        
+
+        logger.exception("[COLLECT] Task marked FAILED (CollectionException)")
+
+        if get_active_collect_task_count() < 11:
+            logger.exception("[COLLECT] Enqueue git commit (after failure)")
+            get_queue("default").enqueue(
+                "config_officer.worker.git_commit_configs_changes",
+                commit_msg
+            )
+
         raise
+
     except Exception as exc:
+        logger.exception("[COLLECT] Unknown exception occurred")
+
         collect_task.status = CollectStatusChoices.STATUS_FAILED
         collect_task.failed_reason = CollectFailChoices.FAIL_GENERAL
         collect_task.message = f"Unknown error {exc}"
         collect_task.save()
+
+        logger.exception("[COLLECT] Task marked FAILED (general exception)")
+
         if get_active_collect_task_count() < 11:
-            get_queue("default").enqueue("config_officer.worker.git_commit_configs_changes", commit_msg)           
+            logger.exception("[COLLECT] Enqueue git commit (after failure)")
+            get_queue("default").enqueue(
+                "config_officer.worker.git_commit_configs_changes",
+                commit_msg
+            )
+
         raise
+
     collect_task.status = CollectStatusChoices.STATUS_SUCCEEDED
     device_netbox.custom_field_data[CF_NAME_COLLECTION_STATUS] = True
     collect_task.save()
 
+    logger.debug("[COLLECT] Task SUCCESS")
+
     try:
-        get_queue("default").enqueue("config_officer.worker.check_device_config_compliance", device=collect_task.device)        
-    except:
-        pass
-        
+        logger.debug("[COLLECT] Enqueue config compliance check")
+        get_queue("default").enqueue(
+            "config_officer.worker.check_device_config_compliance",
+            device=collect_task.device
+        )
+    except Exception:
+        logger.exception("[COLLECT] Failed to enqueue compliance check")
+
     if get_active_collect_task_count() < 11:
-        get_queue("default").enqueue("config_officer.worker.git_commit_configs_changes", commit_msg)       
+        logger.exception("[COLLECT] Enqueue git commit (success path)")
+        get_queue("default").enqueue(
+            "config_officer.worker.git_commit_configs_changes",
+            commit_msg
+        )
+
+    logger.debug(f"[COLLECT] Task finished: device={collect_task.device.name}, ip={ip}")
+
     return f"{collect_task.device.name} {ip} running config was collected."
 
 
 @job("default")
 def git_commit_configs_changes(msg):
-    """Commit changes in devices show-run."""
+    logger.debug(f"[GIT] Job started with msg='{msg}'")
 
     if get_active_collect_task_count() > 0:
-        return    
-    message = ""
+        logger.debug("[GIT] Skipped commit - active collect tasks still running")
+        return "Skipped due to active tasks"
+
     try:
         repo = Repo(NETBOX_DEVICES_CONFIGS_DIR)
         repo.git.add("*")
+        logger.debug("[GIT] git add executed")
 
-        # check if there are any changes
-        if len(repo.index.diff("HEAD")) > 0:
-            commit_hash = repo.git.commit("-m", msg, author="Netbox Netbox <netbox@example.com>")
-            message = f"Commited. Response={commit_hash}."
+        diff = repo.index.diff("HEAD")
+        logger.debug(f"[GIT] Diff size vs HEAD: {len(diff)}")
+
+        if len(diff) > 0:
+            logger.debug("[GIT] Changes detected -> committing now")
+
+            commit_hash = repo.git.commit(
+                "-m", msg,
+                author="Netbox Netbox <netbox@example.com>"
+            )
+
+            logger.debug(f"[GIT] COMMIT DONE: {commit_hash}")
+            return f"Committed: {commit_hash}"
+
         else:
-            message = "No changes for commit"
+            logger.debug("[GIT] No changes -> commit skipped")
+            return "No changes for commit"
+
     except Exception as e:
-        message = e
-    return message
+        logger.exception("[GIT] Commit failed")
+        return f"Error: {e}"
 
 
 @job("default")
