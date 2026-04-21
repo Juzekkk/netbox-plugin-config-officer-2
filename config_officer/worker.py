@@ -14,6 +14,7 @@ from .git_manager import get_device_config, get_days_after_update
 from .config_manager import get_config_diff
 from django.conf import settings
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -21,53 +22,87 @@ PLUGIN_SETTINGS = settings.PLUGINS_CONFIG.get("config_officer", dict())
 CF_NAME_COLLECTION_STATUS = PLUGIN_SETTINGS.get("CF_NAME_COLLECTION_STATUS", "collection_status")
 NETBOX_DEVICES_CONFIGS_DIR = PLUGIN_SETTINGS.get("NETBOX_DEVICES_CONFIGS_DIR", "/device_configs")
 GLOBAL_TASK_INIT_MESSAGE = 'global_collection_task'
-DEFAULT_PLATFORM = 'iosxe'
+DEFAULT_PLATFORM = 'nxos'
+
+# Lines matching these patterns change on every 'show run' even when the
+# actual config is identical. Strip them before comparing for real changes.
+VOLATILE_LINE_PATTERNS = [
+    re.compile(r'^!Time:'),
+    re.compile(r'^!Running configuration last done at:'),
+    re.compile(r'^!NVRAM config last updated'),
+    re.compile(r'^! Last configuration change'),
+    re.compile(r'^ntp clock-period'),
+]
+
+
+def _strip_volatile_lines(text: str) -> str:
+    """Remove timestamp/volatile lines before diffing two config versions."""
+    return "\n".join(
+        line for line in text.splitlines()
+        if not any(p.match(line) for p in VOLATILE_LINE_PATTERNS)
+    )
+
 
 def get_active_collect_task_count():
-    """ Get count of pending collection tasks."""
-    return  Collection.objects.filter((Q(status__iexact=CollectStatusChoices.STATUS_PENDING)
-            | Q(status__iexact=CollectStatusChoices.STATUS_RUNNING)) & Q(message__iexact=GLOBAL_TASK_INIT_MESSAGE)).count()
+    """Get count of pending/running global collection tasks."""
+    return Collection.objects.filter(
+        (
+            Q(status__iexact=CollectStatusChoices.STATUS_PENDING)
+            | Q(status__iexact=CollectStatusChoices.STATUS_RUNNING)
+        )
+        & Q(message__iexact=GLOBAL_TASK_INIT_MESSAGE)
+    ).count()
 
+
+# Collect by hostname (UI entry point)
 
 @job("default")
 def collect_device_config_hostname(hostname):
-    """Collect device configuration by name. Task started with hostname param."""
+    """Collect device configuration by name."""
+    logger.info(f"[WORKER] collect_device_config_hostname: hostname={hostname!r}")
 
     device = Device.objects.get(name__iexact=hostname)
     collect_task = Collection.objects.create(device=device, message="device collection task")
     collect_task.save()
+    logger.debug(f"[WORKER] Created Collection id={collect_task.pk}")
 
     now = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
-    commit_msg = f"device_{hostname}_{now}"      
-    get_queue("default").enqueue("config_officer.worker.collect_device_config_task", collect_task.pk, commit_msg)
+    commit_msg = f"device_{hostname}_{now}"
+    get_queue("default").enqueue(
+        "config_officer.worker.collect_device_config_task",
+        collect_task.pk,
+        commit_msg,
+    )
+    logger.debug(f"[WORKER] Enqueued task id={collect_task.pk} commit_msg={commit_msg!r}")
 
+
+# Main collection task
 
 @job("default")
 def collect_device_config_task(task_id, commit_msg=""):
-    logger.debug(f"[COLLECT] Task start: task_id={task_id}, commit_msg='{commit_msg}'")
+    logger.info(f"[WORKER] collect_device_config_task: task_id={task_id} commit_msg={commit_msg!r}")
 
     time.sleep(1)
     try:
         collect_task = Collection.objects.get(id=task_id)
-        logger.debug(f"[COLLECT] Loaded Collection id={task_id}, status={collect_task.status}")
+        logger.debug(f"[WORKER] Loaded Collection id={task_id} status={collect_task.status!r}")
     except Collection.DoesNotExist:
-        logger.warning(f"[COLLECT] Collection not found immediately, retrying task_id={task_id}")
+        logger.warning(f"[WORKER] Collection id={task_id} not found, retrying in 5s")
         time.sleep(5)
         collect_task = Collection.objects.get(id=task_id)
-        logger.exception(f"[COLLECT] Loaded after retry task_id={task_id}")
 
     collect_task.status = CollectStatusChoices.STATUS_RUNNING
     collect_task.save()
-    logger.debug(f"[COLLECT] Status set to RUNNING task_id={task_id}")
+    logger.debug("[WORKER] Status -> RUNNING")
 
     if not commit_msg:
-        now = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
-        commit_msg = f"{now}"
-        logger.debug(f"[COLLECT] Generated commit_msg={commit_msg}")
+        commit_msg = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+        logger.debug(f"[WORKER] Generated commit_msg={commit_msg!r}")
 
+    ip = "unknown"
     try:
         device_netbox = collect_task.device
-        logger.debug(f"[COLLECT] Device loaded: {device_netbox.name}")
+        logger.debug(f"[WORKER] Device: {device_netbox.name}")
 
         device_netbox.custom_field_data[CF_NAME_COLLECTION_STATUS] = False
 
@@ -76,193 +111,279 @@ def collect_device_config_task(task_id, commit_msg=""):
             if device_netbox.platform is not None
             else DEFAULT_PLATFORM
         )
+        logger.debug(f"[WORKER] Platform: {platform!r}")
+
+        if not device_netbox.primary_ip4:
+            raise CollectionException(
+                reason=CollectFailChoices.FAIL_CONNECT,
+                message=f"Device {device_netbox.name} has no Primary IPv4 set in NetBox.",
+            )
 
         device_netbox.save()
-        logger.debug(f"[COLLECT] Device saved, platform={platform}")
-
         ip = str(ipaddress.ip_interface(device_netbox.primary_ip4).ip)
-        logger.debug(f"[COLLECT] Parsed IP={ip}")
+        logger.debug(f"[WORKER] Primary IP: {ip}")
 
         device_collect = CollectDeviceData(
             collect_task,
             ip=ip,
             hostname_ipam=str(device_netbox.name),
-            platform=platform
+            platform=platform,
         )
 
-        logger.debug("[COLLECT] Starting collect_information()")
+        logger.debug("[WORKER] Calling collect_information()")
         device_collect.collect_information()
-        logger.debug("[COLLECT] collect_information() finished")
+        logger.info(f"[WORKER] collect_information() OK for {device_netbox.name}")
 
     except CollectionException as exc:
-        logger.error(f"[COLLECT] CollectionException: {exc.reason} | {exc.message}")
-
+        logger.error(
+            f"[WORKER] CollectionException: reason={exc.reason!r} message={exc.message!r}"
+        )
         collect_task.status = CollectStatusChoices.STATUS_FAILED
         collect_task.failed_reason = exc.reason
         collect_task.message = exc.message
         collect_task.save()
-
-        logger.exception("[COLLECT] Task marked FAILED (CollectionException)")
-
         if get_active_collect_task_count() < 11:
-            logger.exception("[COLLECT] Enqueue git commit (after failure)")
             get_queue("default").enqueue(
-                "config_officer.worker.git_commit_configs_changes",
-                commit_msg
+                "config_officer.worker.git_commit_configs_changes", commit_msg
             )
-
         raise
 
     except Exception as exc:
-        logger.exception("[COLLECT] Unknown exception occurred")
-
+        logger.exception(f"[WORKER] Unexpected exception: {exc}")
         collect_task.status = CollectStatusChoices.STATUS_FAILED
         collect_task.failed_reason = CollectFailChoices.FAIL_GENERAL
         collect_task.message = f"Unknown error {exc}"
         collect_task.save()
-
-        logger.exception("[COLLECT] Task marked FAILED (general exception)")
-
         if get_active_collect_task_count() < 11:
-            logger.exception("[COLLECT] Enqueue git commit (after failure)")
             get_queue("default").enqueue(
-                "config_officer.worker.git_commit_configs_changes",
-                commit_msg
+                "config_officer.worker.git_commit_configs_changes", commit_msg
             )
-
         raise
 
     collect_task.status = CollectStatusChoices.STATUS_SUCCEEDED
     device_netbox.custom_field_data[CF_NAME_COLLECTION_STATUS] = True
     collect_task.save()
-
-    logger.debug("[COLLECT] Task SUCCESS")
+    logger.info(f"[WORKER] Task SUCCESS: {collect_task.device.name} ({ip})")
 
     try:
-        logger.debug("[COLLECT] Enqueue config compliance check")
         get_queue("default").enqueue(
             "config_officer.worker.check_device_config_compliance",
-            device=collect_task.device
+            device=collect_task.device,
         )
+        logger.debug("[WORKER] Enqueued compliance check")
     except Exception:
-        logger.exception("[COLLECT] Failed to enqueue compliance check")
+        logger.exception("[WORKER] Failed to enqueue compliance check")
 
     if get_active_collect_task_count() < 11:
-        logger.exception("[COLLECT] Enqueue git commit (success path)")
         get_queue("default").enqueue(
-            "config_officer.worker.git_commit_configs_changes",
-            commit_msg
+            "config_officer.worker.git_commit_configs_changes", commit_msg
         )
-
-    logger.debug(f"[COLLECT] Task finished: device={collect_task.device.name}, ip={ip}")
+        logger.debug(f"[WORKER] Enqueued git commit: {commit_msg!r}")
 
     return f"{collect_task.device.name} {ip} running config was collected."
 
 
+# Smart git commit – skips commit when only volatile lines changed
+
 @job("default")
 def git_commit_configs_changes(msg):
-    logger.debug(f"[GIT] Job started with msg='{msg}'")
+    """
+    Commit device config changes, but only when the config actually changed.
+
+    Volatile lines (timestamps, 'show run' metadata) are stripped before
+    comparing the staged file with HEAD. If the only differences are in those
+    lines, the file is restored from HEAD and no commit is made.
+    """
+    logger.info(f"[GIT] git_commit_configs_changes: msg={msg!r}")
 
     if get_active_collect_task_count() > 0:
-        logger.debug("[GIT] Skipped commit - active collect tasks still running")
-        return "Skipped due to active tasks"
+        logger.debug("[GIT] Active collect tasks running – skipping commit")
+        return "Skipped: active collect tasks"
 
     try:
-        repo = Repo(NETBOX_DEVICES_CONFIGS_DIR)
+        try:
+            repo = Repo(NETBOX_DEVICES_CONFIGS_DIR)
+            logger.debug("[GIT] Existing repo loaded")
+        except (InvalidGitRepositoryError, NoSuchPathError):
+            logger.debug("[GIT] Repo not found – initializing new repository")
+            repo = Repo.init(NETBOX_DEVICES_CONFIGS_DIR)
+        
+        if not repo.head.is_valid():
+            logger.debug("[GIT] No HEAD yet – creating initial commit")
+            repo.index.commit(msg)
+            return "Initial commit created"
+
         repo.git.add("*")
-        logger.debug("[GIT] git add executed")
+        logger.debug("[GIT] git add * done")
 
-        diff = repo.index.diff("HEAD")
-        logger.debug(f"[GIT] Diff size vs HEAD: {len(diff)}")
+        staged = repo.index.diff("HEAD")
+        logger.debug(f"[GIT] Files staged vs HEAD: {len(staged)}")
 
-        if len(diff) > 0:
-            logger.debug("[GIT] Changes detected -> committing now")
-
-            commit_hash = repo.git.commit(
-                "-m", msg,
-                author="Netbox Netbox <netbox@example.com>"
-            )
-
-            logger.debug(f"[GIT] COMMIT DONE: {commit_hash}")
-            return f"Committed: {commit_hash}"
-
-        else:
-            logger.debug("[GIT] No changes -> commit skipped")
+        if not staged:
+            logger.debug("[GIT] Nothing staged – no commit needed")
             return "No changes for commit"
 
-    except Exception as e:
-        logger.exception("[GIT] Commit failed")
-        return f"Error: {e}"
+        real_changes = []
+        timestamp_only = []
 
+        for diff_item in staged:
+            path = diff_item.b_path or diff_item.a_path
+            logger.debug(f"[GIT] Evaluating: {path}")
+
+            try:
+                # Read current file from disk
+                file_path = f"{NETBOX_DEVICES_CONFIGS_DIR}/{path.split('/')[-1]}"
+                try:
+                    with open(file_path, "r", errors="replace") as f:
+                        new_text = f.read()
+                except FileNotFoundError:
+                    # Deleted file – always a real change
+                    logger.debug(f"[GIT] {path} deleted -> real change")
+                    real_changes.append(path)
+                    continue
+
+                # Read HEAD version
+                try:
+                    old_text = repo.git.show(f"HEAD:{path}")
+                except Exception:
+                    # New file – always a real change
+                    logger.debug(f"[GIT] {path} is new -> real change")
+                    real_changes.append(path)
+                    continue
+
+                new_stripped = _strip_volatile_lines(new_text)
+                old_stripped = _strip_volatile_lines(old_text)
+
+                if new_stripped == old_stripped:
+                    logger.debug(
+                        f"[GIT] {path} -> only timestamps differ, restoring from HEAD"
+                    )
+                    timestamp_only.append(path)
+                    repo.git.checkout("HEAD", "--", path)
+                else:
+                    logger.debug(f"[GIT] {path} -> real config change")
+                    real_changes.append(path)
+
+            except Exception:
+                logger.exception(f"[GIT] Error comparing {path}, treating as real change")
+                real_changes.append(path)
+
+        logger.info(
+            f"[GIT] Result: {len(real_changes)} real change(s), "
+            f"{len(timestamp_only)} timestamp-only (skipped)"
+        )
+        if real_changes:
+            logger.info(f"[GIT] Changed: {real_changes}")
+        if timestamp_only:
+            logger.debug(f"[GIT] Skipped: {timestamp_only}")
+
+        # Re-check staged after restoring timestamp-only files
+        staged_after = repo.index.diff("HEAD")
+        if not staged_after:
+            logger.info("[GIT] No real changes after filtering – commit skipped")
+            return "No real config changes (only timestamps differed)"
+
+        commit_hash = repo.git.commit(
+            "-m", msg,
+            author="Netbox Netbox <netbox@example.com>",
+        )
+        logger.info(f"[GIT] Committed: {commit_hash}")
+        return f"Committed: {commit_hash}"
+
+    except Exception:
+        logger.exception("[GIT] Commit failed")
+        return "Error during commit"
+
+
+# Compliance check
 
 @job("default")
 def check_device_config_compliance(device):
-    
-    """Check a configuration template compliance for a particular device.""" 
+    """Check configuration template compliance for a particular device."""
+    logger.info(f"[COMPLIANCE] Checking: {device.name}")
 
-    # Compliance.objects.get_or_create(device=device).delete()    
     compliance = Compliance.objects.get_or_create(device=device)[0]
     compliance.status = ServiceComplianceChoices.STATUS_NON_COMPLIANCE
     compliance.notes = "not checked yet"
     compliance.generated_config = "None"
     compliance.diff = "None"
     compliance.save()
-    compliance.services = [m.service.name for m in ServiceMapping.objects.filter(device=compliance.device)]
+    compliance.services = [
+        m.service.name
+        for m in ServiceMapping.objects.filter(device=compliance.device)
+    ]
 
-    # Check if there are matched templates
     templates = compliance.get_device_templates()
     if not templates:
+        logger.debug(f"[COMPLIANCE] No matched templates for {device.name}")
         compliance.notes = 'No matched templates'
-        compliance.save()   
-        return {device: compliance.notes}    
+        compliance.save()
+        return {device: compliance.notes}
 
-    # Check if device config file exists: 
-    device_config = get_device_config(NETBOX_DEVICES_CONFIGS_DIR, device.name, "running")        
+    logger.debug(f"[COMPLIANCE] Templates: {[t.name for t in templates]}")
+
+    device_config = get_device_config(NETBOX_DEVICES_CONFIGS_DIR, device.name, "running")
     if not device_config:
+        logger.warning(f"[COMPLIANCE] Config file missing for {device.name}")
         compliance.notes = 'running config not found in git'
         compliance.save()
         return {device: compliance.notes}
 
-    # If device configuration elder tham 7 days - non_compliance
-    device_config_age = get_days_after_update(NETBOX_DEVICES_CONFIGS_DIR, device.name, "running")       
-    if device_config_age > 7:    
+    device_config_age = get_days_after_update(NETBOX_DEVICES_CONFIGS_DIR, device.name, "running")
+    logger.debug(f"[COMPLIANCE] Config age: {device_config_age} day(s)")
+
+    if device_config_age > 7:
         compliance.notes = f"device config is staled ({device_config_age} days)"
         compliance.save()
         return {device: compliance.notes}
     elif device_config_age < 0:
-        compliance.notes = 'unknown error during calculating config age',
+        compliance.notes = 'unknown error during calculating config age'
         compliance.save()
         return {device: compliance.notes}
 
     generated_config = compliance.get_generated_config().splitlines()
-    
+    logger.debug(f"[COMPLIANCE] Generated config: {len(generated_config)} lines")
+
     compliance.diff = get_config_diff(generated_config, device_config.splitlines())
-    
-    if len(compliance.diff) == 0:     
-        # Running configuration absilutely compliant to template
-        compliance.diff = ""   
+
+    if len(compliance.diff) == 0:
+        logger.info(f"[COMPLIANCE] {device.name} -> COMPLIANT ✓")
+        compliance.diff = ""
         compliance.notes = None
         compliance.status = ServiceComplianceChoices.STATUS_COMPLIANCE
     else:
-        # There are diffs
+        logger.info(f"[COMPLIANCE] {device.name} -> NON-COMPLIANT ({len(compliance.diff)} diff lines)")
         compliance.diff = "\n".join("\n".join(line) for line in compliance.diff)
         compliance.notes = None
         compliance.status = ServiceComplianceChoices.STATUS_NON_COMPLIANCE
-    compliance.save()
 
+    compliance.save()
     return {device: compliance.status}
 
 
+# Global collection
+
 @job("default")
 def collect_all_devices_configs():
-    """Worker - collect show-run configs from all devices."""
-    # commit changes before the global collection
+    """Worker – collect show-run configs from all devices."""
+    logger.info("[WORKER] collect_all_devices_configs: starting global collection")
 
     Collection.objects.all().delete()
     devices = Device.objects.all()
+    count = devices.count()
+    logger.info(f"[WORKER] Devices to collect: {count}")
+
     now = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
-    commit_msg = f"global_{now}"      
+    commit_msg = f"global_{now}"
+
     for device in devices:
         collect_task = Collection.objects.create(device=device, message=GLOBAL_TASK_INIT_MESSAGE)
         collect_task.save()
-        get_queue("default").enqueue("config_officer.worker.collect_device_config_task", collect_task.pk, commit_msg)
+        get_queue("default").enqueue(
+            "config_officer.worker.collect_device_config_task",
+            collect_task.pk,
+            commit_msg,
+        )
+        logger.debug(f"[WORKER] Enqueued task for {device.name} (id={collect_task.pk})")
+
+    logger.info(f"[WORKER] Enqueued {count} collection tasks with commit_msg={commit_msg!r}")
