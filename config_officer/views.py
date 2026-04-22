@@ -48,7 +48,9 @@ from .tables import (
 )
 
 PLUGIN_SETTINGS = settings.PLUGINS_CONFIG.get("config_officer", dict())
-NETBOX_DEVICES_CONFIGS_DIR = PLUGIN_SETTINGS.get("NETBOX_DEVICES_CONFIGS_DIR", "/device_configs")
+NETBOX_DEVICES_CONFIGS_REPO_DIR = PLUGIN_SETTINGS.get("NETBOX_DEVICES_CONFIGS_REPO_DIR", "/device_configs")
+NETBOX_DEVICES_CONFIGS_SUBPATH = PLUGIN_SETTINGS.get('NETBOX_DEVICES_CONFIGS_SUBPATH', 'netbox')
+NETBOX_DEVICES_CONFIGS_PATH = os.path.join(NETBOX_DEVICES_CONFIGS_REPO_DIR, NETBOX_DEVICES_CONFIGS_SUBPATH)
 TIME_ZONE = os.environ.get("TIME_ZONE", "UTC")
 
 
@@ -280,8 +282,8 @@ class ComplianceView(PermissionRequiredMixin, View):
 
     def get(self, request, device):
         record = get_object_or_404(Compliance, device=device)
-        device_config = get_device_config(NETBOX_DEVICES_CONFIGS_DIR, record.device.name, "running")
-        config_update_date = get_config_update_date(NETBOX_DEVICES_CONFIGS_DIR, record.device.name, "running")
+        device_config = get_device_config(NETBOX_DEVICES_CONFIGS_PATH, record.device.name, "running")
+        config_update_date = get_config_update_date(NETBOX_DEVICES_CONFIGS_PATH, record.device.name, "running")
         return render(
             request,
             "config_officer/compliance_view.html",
@@ -444,7 +446,7 @@ class ServiceDetach(PermissionRequiredMixin, View):
 
 def running_config(request, hostname):
     """Show device running-config page – called via NetBox Custom Link."""
-    running = get_device_config(NETBOX_DEVICES_CONFIGS_DIR, hostname, "running")
+    running = get_device_config(NETBOX_DEVICES_CONFIGS_PATH, hostname, "running")
     message: dict = {}
     if not running:
         message["status"] = False
@@ -453,6 +455,6 @@ def running_config(request, hostname):
         message["status"] = True
         message["running_config"] = running
     message["repo_state"] = get_file_repo_state(
-        NETBOX_DEVICES_CONFIGS_DIR, f"{hostname}_running.txt"
+        NETBOX_DEVICES_CONFIGS_PATH, f"{hostname}_running.txt"
     )
     return render(request, "config_officer/device_running_config.html", {"message": message})

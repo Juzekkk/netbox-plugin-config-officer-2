@@ -31,7 +31,9 @@ logger = logging.getLogger(__name__)
 PLUGIN_SETTINGS = settings.PLUGINS_CONFIG.get("config_officer", {})
 
 CF_NAME_COLLECTION_STATUS  = PLUGIN_SETTINGS.get("CF_NAME_COLLECTION_STATUS", "collection_status")
-NETBOX_DEVICES_CONFIGS_DIR = PLUGIN_SETTINGS.get("NETBOX_DEVICES_CONFIGS_DIR", "/device_configs")
+NETBOX_DEVICES_CONFIGS_REPO_DIR = PLUGIN_SETTINGS.get("NETBOX_DEVICES_CONFIGS_REPO_DIR", "/device_configs")
+NETBOX_DEVICES_CONFIGS_SUBPATH = PLUGIN_SETTINGS.get('NETBOX_DEVICES_CONFIGS_SUBPATH', 'netbox')
+NETBOX_DEVICES_CONFIGS_PATH = os.path.join(NETBOX_DEVICES_CONFIGS_REPO_DIR, NETBOX_DEVICES_CONFIGS_SUBPATH)
 DEFAULT_PLATFORM           = PLUGIN_SETTINGS.get("DEFAULT_PLATFORM", "nxos")
 GLOBAL_TASK_INIT_MESSAGE   = "global_collection_task"
 
@@ -39,7 +41,7 @@ _GIT_REMOTE_CFG       = PLUGIN_SETTINGS.get("GIT_REMOTE", {})
 GIT_REMOTE_ENABLED    = _GIT_REMOTE_CFG.get("ENABLED", False)
 GIT_REMOTE_URL        = _GIT_REMOTE_CFG.get("URL")
 GIT_REMOTE_NAME       = _GIT_REMOTE_CFG.get("NAME", "origin")
-GIT_REMOTE_BRANCH     = _GIT_REMOTE_CFG.get("BRANCH", "main")
+GIT_REMOTE_BRANCH     = _GIT_REMOTE_CFG.get("BRANCH", "netbox")
 GIT_REMOTE_KEY        = _GIT_REMOTE_CFG.get("SSH_KEY_PATH")
 GIT_AUTHOR            = _GIT_REMOTE_CFG.get("AUTHOR", "Netbox <netbox@example.com>")
 
@@ -110,17 +112,71 @@ def _open_or_init_repo() -> tuple[Repo, bool]:
     Returns (repo, is_new).
     """
     try:
-        repo = Repo(NETBOX_DEVICES_CONFIGS_DIR)
+        repo = Repo(NETBOX_DEVICES_CONFIGS_REPO_DIR)
         logger.debug("[GIT] Opened existing repo at %s (HEAD=%s)",
-                     NETBOX_DEVICES_CONFIGS_DIR,
+                     NETBOX_DEVICES_CONFIGS_REPO_DIR,
                      repo.head.commit.hexsha[:8] if repo.head.is_valid() else "none")
         return repo, False
     except (InvalidGitRepositoryError, NoSuchPathError):
-        logger.info("[GIT] No git repo found at %s - initialising", NETBOX_DEVICES_CONFIGS_DIR)
-        os.makedirs(NETBOX_DEVICES_CONFIGS_DIR, exist_ok=True)
-        repo = Repo.init(NETBOX_DEVICES_CONFIGS_DIR)
-        logger.info("[GIT] Initialised new repo at %s", NETBOX_DEVICES_CONFIGS_DIR)
+        logger.info("[GIT] No git repo found at %s - initialising", NETBOX_DEVICES_CONFIGS_REPO_DIR)
+        os.makedirs(NETBOX_DEVICES_CONFIGS_PATH, exist_ok=True)
+        repo = Repo.init(NETBOX_DEVICES_CONFIGS_REPO_DIR)
+        logger.info("[GIT] Initialised new repo at %s", NETBOX_DEVICES_CONFIGS_REPO_DIR)
         return repo, True
+
+def _ensure_safe_directory(repo: Repo) -> None:
+    """
+    Ensure the repository path is marked as safe.directory in global git config.
+    Fixes 'detected dubious ownership' error.
+    """
+    repo_path = os.path.abspath(repo.working_tree_dir)
+
+    try:
+        existing = repo.git.config("--global", "--get-all", "safe.directory").splitlines()
+    except GitCommandError:
+        existing = []
+
+    if repo_path in existing:
+        logger.debug("[GIT] Repo already marked as safe.directory: %s", repo_path)
+        return
+
+    try:
+        logger.info("[GIT] Adding safe.directory: %s", repo_path)
+        repo.git.config("--global", "--add", "safe.directory", repo_path)
+    except Exception:
+        logger.exception("[GIT] Failed to set safe.directory")
+
+def _ensure_branch(repo: Repo):
+    """
+    Make sure the specified branch is checked out.
+    Returns True if branch was changed, False if already correct.
+    """
+    try:
+        current_branch = repo.active_branch.name
+    except TypeError:
+        # Detached HEAD
+        current_branch = None
+
+    if current_branch == GIT_REMOTE_BRANCH:
+        logger.debug("[GIT] Already on branch '%s'", GIT_REMOTE_BRANCH)
+        return
+
+    # Check if branch exists locally
+    if GIT_REMOTE_BRANCH in repo.heads:
+        logger.info("[GIT] Checking out existing branch '%s'", GIT_REMOTE_BRANCH)
+        repo.git.checkout(GIT_REMOTE_BRANCH)
+        return
+
+    # Try to check out from remote
+    try:
+        logger.info("[GIT] Creating and checking out branch '%s' from origin", GIT_REMOTE_BRANCH)
+        repo.git.checkout("-b", GIT_REMOTE_BRANCH, f"origin/{GIT_REMOTE_BRANCH}")
+        return
+    except Exception:
+        logger.warning("[GIT] Remote branch '%s' not found, creating new local branch", GIT_REMOTE_BRANCH)
+        repo.git.checkout("-b", GIT_REMOTE_BRANCH)
+        return
+
 
 
 def _ensure_remote(repo: Repo) -> bool:
@@ -147,7 +203,6 @@ def _ensure_remote(repo: Repo) -> bool:
 def _initial_clone_or_pull(repo: Repo, is_new: bool) -> None:
     """
     For a newly initialised repo: pull from remote to get existing history.
-    For an existing repo: nothing (we push only).
     """
     if not is_new or not GIT_REMOTE_ENABLED or not GIT_REMOTE_URL:
         return
@@ -168,12 +223,17 @@ def _initial_clone_or_pull(repo: Repo, is_new: bool) -> None:
 
 def _push_to_remote(repo: Repo) -> str:
     """
-    Push committed changes to remote.
+    Pull and then Push committed changes to remote.
     Returns a status string suitable for the task return value.
     """
     _apply_ssh_env(GIT_REMOTE_KEY)
     try:
         remote = repo.remotes[GIT_REMOTE_NAME]
+        logger.info("[GIT] Pull from %s/%s", GIT_REMOTE_NAME, GIT_REMOTE_BRANCH)
+        pull_results = remote.pull(GIT_REMOTE_BRANCH)
+        for info in pull_results:
+            logger.info("[GIT] Pull result: flags=%s summary=%r",
+                        info.flags, info.summary.strip())
         logger.info("[GIT] Pushing to %s/%s", GIT_REMOTE_NAME, GIT_REMOTE_BRANCH)
         push_results = remote.push(GIT_REMOTE_BRANCH)
         for info in push_results:
@@ -204,7 +264,7 @@ def _evaluate_staged_files(repo: Repo) -> tuple[list[str], list[str]]:
         logger.debug("[GIT] Evaluating staged file: %s", path)
 
         # Read current file from disk
-        abs_path = os.path.join(NETBOX_DEVICES_CONFIGS_DIR, os.path.basename(path))
+        abs_path = os.path.join(NETBOX_DEVICES_CONFIGS_REPO_DIR, os.path.basename(path))
         try:
             with open(abs_path, "r", errors="replace") as fh:
                 new_text = fh.read()
@@ -387,11 +447,14 @@ def git_commit_configs_changes(msg: str) -> str:
 
     try:
         repo, is_new = _open_or_init_repo()
+        _ensure_safe_directory(repo)
         has_remote = _ensure_remote(repo)
 
         # On first-ever run: pull remote history so we can push later
         if is_new and has_remote:
             _initial_clone_or_pull(repo, is_new)
+
+        _ensure_branch(repo)
 
         # Nothing to commit if HEAD doesn't exist yet (truly empty repo)
         if not repo.head.is_valid():
@@ -474,14 +537,14 @@ def check_device_config_compliance(device: Device) -> dict:
     logger.debug("[COMPLIANCE] %s - matched templates: %s",
                  device.name, [t.name for t in templates])
 
-    device_config = get_device_config(NETBOX_DEVICES_CONFIGS_DIR, device.name, "running")
+    device_config = get_device_config(NETBOX_DEVICES_CONFIGS_PATH, device.name, "running")
     if not device_config:
         logger.warning("[COMPLIANCE] %s - running config file not found", device.name)
         compliance.notes = "running config not found in git"
         compliance.save()
         return {device: compliance.notes}
 
-    config_age = get_days_after_update(NETBOX_DEVICES_CONFIGS_DIR, device.name, "running")
+    config_age = get_days_after_update(NETBOX_DEVICES_CONFIGS_PATH, device.name, "running")
     logger.debug("[COMPLIANCE] %s - config age: %d day(s)", device.name, config_age)
 
     if config_age > 7:
