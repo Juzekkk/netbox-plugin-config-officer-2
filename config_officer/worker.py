@@ -229,11 +229,6 @@ def _push_to_remote(repo: Repo) -> str:
     _apply_ssh_env(GIT_REMOTE_KEY)
     try:
         remote = repo.remotes[GIT_REMOTE_NAME]
-        logger.info("[GIT] Pull from %s/%s", GIT_REMOTE_NAME, GIT_REMOTE_BRANCH)
-        pull_results = remote.pull(GIT_REMOTE_BRANCH)
-        for info in pull_results:
-            logger.info("[GIT] Pull result: flags=%s summary=%r",
-                        info.flags, info.summary.strip())
         logger.info("[GIT] Pushing to %s/%s", GIT_REMOTE_NAME, GIT_REMOTE_BRANCH)
         push_results = remote.push(GIT_REMOTE_BRANCH)
         for info in push_results:
