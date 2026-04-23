@@ -62,16 +62,19 @@ SENSITIVE_PREFIXES: tuple[str, ...] = tuple(
     _get("SENSITIVE_PREFIXES", SENSITIVE_PREFIXES_DEFAULT)
 )
 
-VOLATILE_LINE_PATTERNS_DEFAULT: list[re.Pattern] = [
-    re.compile(r"^!Time:"),
-    re.compile(r"^!Running configuration last done at:"),
-    re.compile(r"^!NVRAM config last updated"),
-    re.compile(r"^! Last configuration change"),
-    re.compile(r"^ntp clock-period"),
+VOLATILE_LINE_PATTERNS_DEFAULT = [
+    r"^!Time:",
+    r"^!Running configuration last done at:",
+    r"^!NVRAM config last updated",
+    r"^! Last configuration change",
+    r"^ntp clock-period",
 ]
 VOLATILE_LINE_PATTERNS: tuple[str, ...] = tuple(
     _get("VOLATILE_LINE_PATTERNS", VOLATILE_LINE_PATTERNS_DEFAULT)
 )
+VOLATILE_LINE_PATTERNS_COMPILED = [
+    re.compile(p) for p in VOLATILE_LINE_PATTERNS
+]
 
 # Common regexes
 REGEX_IP:  str = r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}"

@@ -4,7 +4,7 @@ import django_tables2 as tables
 from netbox.tables import NetBoxTable, ToggleColumn, TagColumn
 from django_tables2.utils import Accessor
 
-from .models import Collection, Template, Service, ServiceRule
+from .models import Collection, Template, Service, ServiceRule, CollectSchedule
 from dcim.models import Device
 
 # Template columns (raw HTML rendered inside TemplateColumn)
@@ -127,6 +127,15 @@ COLLECTION_DELETE = """
 <a href="?pk={{ record.pk }}" class="btn btn-danger btn-sm" title="Delete">
     <i class="mdi mdi-trash-can"></i>
 </a>
+"""
+
+COLLECT_SCHEDULE = """
+<a href="{% url 'plugins:config_officer:collectschedule_edit' pk=record.pk %}"
+    class="btn btn-sm btn-warning">Edit</a>
+<a href="{% url 'plugins:config_officer:collectschedule_delete' pk=record.pk %}"
+    class="btn btn-sm btn-danger ms-1">Delete</a>
+<a href="{% url 'plugins:config_officer:collectschedule_run_now' pk=record.pk %}"
+    class="btn btn-sm btn-primary ms-1">Run now</a>
 """
 
 
@@ -272,3 +281,40 @@ class ServiceMappingListTable(NetBoxTable):
         model = Device
         fields = ("pk", "name", "service", "tenant", "device_role", "device_type", "tags", "status", "notes")
         default_columns = ("pk", "name", "service", "tenant", "device_role", "device_type", "tags", "status", "notes")
+
+
+class CollectScheduleTable(NetBoxTable):
+    name = tables.Column(linkify=True)
+    devices = tables.Column(
+        empty_values=(),
+        orderable=False,
+        verbose_name="Devices",
+    )
+    interval_hours = tables.Column(verbose_name="Interval")
+    next_run = tables.DateTimeColumn(
+        format="Y-m-d H:i",
+        verbose_name="Next run",
+    )
+    enabled = tables.BooleanColumn(verbose_name="Enabled")
+    actions = tables.TemplateColumn(
+        template_code=COLLECT_SCHEDULE,
+        orderable=False,
+        verbose_name="",
+    )
+ 
+    class Meta:
+        model = CollectSchedule
+        fields = ("name", "devices", "interval_hours", "next_run", "enabled", "actions")
+        attrs = {"class": "table table-hover table-headings"}
+ 
+    def render_devices(self, record):
+        count = record.devices.count()
+        return f"{count} device{'s' if count != 1 else ''}"
+ 
+    def render_interval_hours(self, value):
+        if value == 1:
+            return "Every hour"
+        if value < 24:
+            return f"Every {value} hours"
+        days = value // 24
+        return f"Every {days} day{'s' if days != 1 else ''}"

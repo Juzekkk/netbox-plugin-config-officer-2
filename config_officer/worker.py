@@ -38,7 +38,7 @@ from .config import (
     GIT_REMOTE_KEY,
     GIT_AUTHOR,
     DEFAULT_PLATFORM,
-    VOLATILE_LINE_PATTERNS,
+    VOLATILE_LINE_PATTERNS_COMPILED,
 )
 from .config_manager import get_config_diff
 from .custom_exceptions import CollectionException
@@ -57,8 +57,9 @@ logger = logging.getLogger(__name__)
 def _strip_volatile_lines(text: str) -> str:
     """Remove timestamp / metadata lines before comparing two config versions."""
     return "\n".join(
-        line for line in text.splitlines()
-        if not any(p.match(line) for p in VOLATILE_LINE_PATTERNS)
+        line.strip()
+        for line in text.splitlines()
+        if not any(p.search(line) for p in VOLATILE_LINE_PATTERNS_COMPILED)
     )
  
  

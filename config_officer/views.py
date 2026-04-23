@@ -33,19 +33,29 @@ from .forms import (
     ServiceMappingForm,
     ServiceMappingCreateForm,
     ServiceMappingFilterForm,
+    CollectScheduleForm,
 )
 from .git_manager import (
     get_device_config,
     get_config_update_date,
     get_device_file_repo_state,
 )
-from .models import Collection, Template, Service, ServiceRule, ServiceMapping, Compliance
+from .models import (
+    Collection,
+    Template,
+    Service,
+    ServiceRule,
+    ServiceMapping,
+    Compliance,
+    CollectSchedule,
+)
 from .tables import (
     CollectionTable,
     TemplateListTable,
     ServiceListTable,
     ServiceRuleListTable,
     ServiceMappingListTable,
+    CollectScheduleTable,
 )
 
 
@@ -464,3 +474,53 @@ def running_config(request, hostname):
     )
 
     return render(request, "config_officer/device_running_config.html", {"message": message})
+
+
+# ---------------------------------------------------------------------------
+# Collect Schedule Views
+# ---------------------------------------------------------------------------
+
+class CollectScheduleListView(ObjectListView):
+    queryset = CollectSchedule.objects.prefetch_related("devices")
+    table = CollectScheduleTable
+    actions = {
+        "add": {"add"},
+    }
+    default_return_url = "plugins:config_officer:schedule_list"
+
+
+class CollectScheduleEditView(ObjectEditView):
+    queryset = CollectSchedule.objects.all()
+    form = CollectScheduleForm
+    default_return_url = "plugins:config_officer:schedule_list"
+
+
+class CollectScheduleDeleteView(ObjectDeleteView):
+    queryset = CollectSchedule.objects.all()
+    default_return_url = "plugins:config_officer:schedule_list"
+
+
+class CollectScheduleRunNowView(View):
+    """Natychmiast kolejkuje zbieranie konfiguracji dla wszystkich urządzeń w harmonogramie."""
+
+    def get(self, request, pk):
+        schedule = get_object_or_404(CollectSchedule, pk=pk)
+        from django_rq import get_queue
+        from datetime import datetime
+        from .worker import collect_device_config_task
+        from .models import Collection
+
+        queue = get_queue("default")
+        commit_msg = f"schedule_{schedule.name}_{datetime.now().strftime('%Y_%m_%d_%H_%M_%S')}"
+
+        for device in schedule.devices.all():
+            collect_task = Collection.objects.create(
+                device=device,
+                message=f"schedule:{schedule.name}",
+            )
+            queue.enqueue(collect_device_config_task, collect_task.pk, commit_msg)
+
+        messages.success(request, f"Zakolejkowano zbieranie dla {schedule.devices.count()} urządzeń.")
+        return redirect("plugins:config_officer:schedule_list")
+
+    default_return_url = "plugins:config_officer:schedule_list"

@@ -2,9 +2,14 @@
 
 from dataclasses import dataclass, field
 from django.db import models
+from django.utils import timezone
 from django.urls import reverse
 from django.db.models import Q
 from django.contrib.postgres.fields import ArrayField
+from dcim.models import Device
+
+from netbox.models import NetBoxModel
+from netbox.models.features import JobsMixin
 
 from .choices import (
     ServiceComplianceChoices,
@@ -218,6 +223,63 @@ class Compliance(models.Model):
     def get_absolute_url(self):
         return reverse("plugins:config_officer:compliance", args=[self.pk])
 
+
+class CollectSchedule(JobsMixin, NetBoxModel):
+    """
+    Defines a recurring config-collection job for one or more devices.
+
+    ``next_run`` is updated by the scheduler worker after each execution.
+    Setting ``enabled = False`` pauses the schedule without deleting it.
+    """
+
+    name = models.CharField(
+        max_length=128,
+        unique=True,
+        help_text="Human-readable label, e.g. 'Core switches - nightly'.",
+    )
+    devices = models.ManyToManyField(
+        Device,
+        related_name="collect_schedules",
+        help_text="Devices to collect configuration from.",
+    )
+    interval_hours = models.PositiveIntegerField(
+        default=24,
+        help_text="How often to run, in hours (e.g. 6, 12, 24).",
+    )
+    next_run = models.DateTimeField(
+        default=timezone.now,
+        help_text="When the schedule will next fire. Updated automatically after each run.",
+    )
+    enabled = models.BooleanField(
+        default=True,
+        help_text="Uncheck to pause this schedule without deleting it.",
+    )
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["next_run"]
+        verbose_name = "Collect Schedule"
+        verbose_name_plural = "Collect Schedules"
+
+    def __str__(self) -> str:
+        return self.name
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        self._schedule_job()
+
+    def _schedule_job(self):
+        from .jobs import CollectScheduleJob
+        if self.enabled:
+            CollectScheduleJob.enqueue_once(
+                instance=self,
+                schedule_at=self.next_run,
+                interval=self.interval_hours * 60,
+            )
+
+    def get_absolute_url(self):
+        return reverse("plugins:config_officer:collectschedule_edit", args=[self.pk])
 
 # ----------------------------
 # Pure-Python data containers

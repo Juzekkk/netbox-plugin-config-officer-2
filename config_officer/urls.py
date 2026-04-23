@@ -39,4 +39,11 @@ urlpatterns = [
 
     # Running-config (target for NetBox Custom Link)
     path("running_config/<slug:hostname>/", views.running_config, name="running_config"),
+
+    # Schedules
+    path("schedules/", views.CollectScheduleListView.as_view(), name="schedule_list"),
+    path("schedules/add/", views.CollectScheduleEditView.as_view(), name="collectschedule_add"),
+    path("schedules/<int:pk>/edit/", views.CollectScheduleEditView.as_view(), name="collectschedule_edit"),
+    path("schedules/<int:pk>/delete/", views.CollectScheduleDeleteView.as_view(), name="collectschedule_delete"),
+    path("schedules/<int:pk>/run-now/", views.CollectScheduleRunNowView.as_view(), name="collectschedule_run_now"),
 ]
