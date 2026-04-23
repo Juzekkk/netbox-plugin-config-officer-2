@@ -18,6 +18,7 @@ from netbox.views.generic import (
     ObjectListView,
     ObjectEditView,
     ObjectDeleteView,
+    ObjectJobsView,
 )
 
 from dcim.models import Device
@@ -501,7 +502,7 @@ class CollectScheduleDeleteView(ObjectDeleteView):
 
 
 class CollectScheduleRunNowView(View):
-    """Natychmiast kolejkuje zbieranie konfiguracji dla wszystkich urządzeń w harmonogramie."""
+    """Immediately queues the configuration collection for all devices in the schedule."""
 
     def get(self, request, pk):
         schedule = get_object_or_404(CollectSchedule, pk=pk)
@@ -520,7 +521,11 @@ class CollectScheduleRunNowView(View):
             )
             queue.enqueue(collect_device_config_task, collect_task.pk, commit_msg)
 
-        messages.success(request, f"Zakolejkowano zbieranie dla {schedule.devices.count()} urządzeń.")
+        messages.success(request, f"The collection process has been queued for {schedule.devices.count()} devices.")
         return redirect("plugins:config_officer:schedule_list")
 
     default_return_url = "plugins:config_officer:schedule_list"
+
+class CollectScheduleJobsView(ObjectJobsView):
+    queryset = CollectSchedule.objects.all()
+    template_name = "generic/object_jobs.html"

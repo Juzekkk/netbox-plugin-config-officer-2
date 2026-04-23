@@ -46,4 +46,5 @@ urlpatterns = [
     path("schedules/<int:pk>/edit/", views.CollectScheduleEditView.as_view(), name="collectschedule_edit"),
     path("schedules/<int:pk>/delete/", views.CollectScheduleDeleteView.as_view(), name="collectschedule_delete"),
     path("schedules/<int:pk>/run-now/", views.CollectScheduleRunNowView.as_view(), name="collectschedule_run_now"),
+    path("schedules/<int:pk>/jobs/", views.CollectScheduleJobsView.as_view(), name="collectschedule_jobs"),
 ]

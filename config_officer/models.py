@@ -224,6 +224,9 @@ class Compliance(models.Model):
         return reverse("plugins:config_officer:compliance", args=[self.pk])
 
 
+# ----------------------------
+# Collect Schedule
+# ----------------------------
 class CollectSchedule(JobsMixin, NetBoxModel):
     """
     Defines a recurring config-collection job for one or more devices.
