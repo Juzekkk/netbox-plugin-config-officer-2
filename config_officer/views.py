@@ -1,7 +1,6 @@
 from copy import deepcopy
 from datetime import datetime
 import io
-import os
 
 import django_tables2 as tables_lib
 import pytz
@@ -58,14 +57,17 @@ from .tables import (
     ServiceMappingListTable,
     CollectScheduleTable,
 )
+from .worker import collect_device_config_task
 
 
 # ---------------------------------------------------------------------------
 # Base helpers
 # ---------------------------------------------------------------------------
 
+
 class PluginTableView(PermissionRequiredMixin, View):
     """Base view: renders a django-tables2 table with an optional filter form."""
+
     permission_required = ("dcim.view_device",)
     queryset = None
     table_class = None
@@ -92,17 +94,22 @@ class PluginTableView(PermissionRequiredMixin, View):
         table = self.table_class(qs)
         tables_lib.RequestConfig(request, paginate={"per_page": 50}).configure(table)
 
-        return render(request, self.template_name, {
-            "table": table,
-            "filter_form": filter_form,
-            "page_title": self.page_title,
-            "add_url": self.add_url,
-        })
+        return render(
+            request,
+            self.template_name,
+            {
+                "table": table,
+                "filter_form": filter_form,
+                "page_title": self.page_title,
+                "add_url": self.add_url,
+            },
+        )
 
 
 # ---------------------------------------------------------------------------
 # Global collection
 # ---------------------------------------------------------------------------
+
 
 def global_collection():
     in_progress = Collection.objects.filter(
@@ -130,6 +137,7 @@ class GlobalCollectionDeviceConfigs(View):
 # ---------------------------------------------------------------------------
 # Collection status
 # ---------------------------------------------------------------------------
+
 
 class CollectStatusListView(PluginTableView):
     queryset = Collection.objects.all().order_by("-id")
@@ -171,12 +179,15 @@ def collect_device_config(request, slug):
         )
         return redirect(reverse("plugins:config_officer:collection_status"))
     except Exception as exc:
-        return render(request, "config_officer/collection_message.html", {"message": str(exc)})
+        return render(
+            request, "config_officer/collection_message.html", {"message": str(exc)}
+        )
 
 
 # ---------------------------------------------------------------------------
 # Template views
 # ---------------------------------------------------------------------------
+
 
 class TemplateListView(PluginTableView):
     queryset = Template.objects.all()
@@ -202,7 +213,9 @@ class TemplateView(PermissionRequiredMixin, View):
 
     def get(self, request, pk):
         template = get_object_or_404(Template, pk=pk)
-        return render(request, "config_officer/template_view.html", {"template": template})
+        return render(
+            request, "config_officer/template_view.html", {"template": template}
+        )
 
 
 class TemplateDeleteView(PermissionRequiredMixin, ObjectDeleteView):
@@ -214,6 +227,7 @@ class TemplateDeleteView(PermissionRequiredMixin, ObjectDeleteView):
 # ---------------------------------------------------------------------------
 # Service views
 # ---------------------------------------------------------------------------
+
 
 class ServiceListView(PluginTableView):
     queryset = Service.objects.all()
@@ -257,6 +271,7 @@ class ServiceDeleteView(PermissionRequiredMixin, ObjectDeleteView):
 # ServiceRule views
 # ---------------------------------------------------------------------------
 
+
 class ServiceRuleListView(PluginTableView):
     queryset = ServiceRule.objects.all().order_by("service")
     table_class = ServiceRuleListTable
@@ -286,6 +301,7 @@ class ServiceRuleDeleteView(PermissionRequiredMixin, ObjectDeleteView):
 # Compliance view
 # ---------------------------------------------------------------------------
 
+
 class ComplianceView(PermissionRequiredMixin, View):
     permission_required = ("dcim.view_device",)
 
@@ -296,8 +312,12 @@ class ComplianceView(PermissionRequiredMixin, View):
             "config_officer/compliance_view.html",
             {
                 "record": record,
-                "device_config": get_device_config(CONFIGS_PATH, record.device.name, "running"),
-                "config_update_date": get_config_update_date(CONFIGS_PATH, record.device.name, "running"),
+                "device_config": get_device_config(
+                    CONFIGS_PATH, record.device.name, "running"
+                ),
+                "config_update_date": get_config_update_date(
+                    CONFIGS_PATH, record.device.name, "running"
+                ),
             },
         )
 
@@ -305,6 +325,7 @@ class ComplianceView(PermissionRequiredMixin, View):
 # ---------------------------------------------------------------------------
 # ServiceMapping views
 # ---------------------------------------------------------------------------
+
 
 class ServiceMappingListView(PermissionRequiredMixin, ObjectListView):
     permission_required = ("dcim.view_device",)
@@ -322,9 +343,14 @@ class ServiceMappingListView(PermissionRequiredMixin, ObjectListView):
 
         output = io.BytesIO()
         header = [
-            {"header": "Hostname"}, {"header": "PID"}, {"header": "Role"},
-            {"header": "IP"}, {"header": "Tenant"}, {"header": "Compliance"},
-            {"header": "Diff"}, {"header": "Notes"},
+            {"header": "Hostname"},
+            {"header": "PID"},
+            {"header": "Role"},
+            {"header": "IP"},
+            {"header": "Tenant"},
+            {"header": "Compliance"},
+            {"header": "Diff"},
+            {"header": "Notes"},
         ]
         width = [len(i["header"]) + 2 for i in header]
         data = []
@@ -332,25 +358,39 @@ class ServiceMappingListView(PermissionRequiredMixin, ObjectListView):
         for d in Device.objects.all().order_by("tenant"):
             if hasattr(d, "compliance"):
                 row = [
-                    d.name, d.device_type.model, d.device_role.name,
+                    d.name,
+                    d.device_type.model,
+                    d.device_role.name,
                     str(d.primary_ip4).split("/")[0] if d.primary_ip4 else "",
-                    str(d.tenant), d.compliance.status,
-                    d.compliance.diff or "", d.compliance.notes or "",
+                    str(d.tenant),
+                    d.compliance.status,
+                    d.compliance.diff or "",
+                    d.compliance.notes or "",
                 ]
             else:
                 row = [
-                    d.name, d.device_type.model, d.device_role.name,
+                    d.name,
+                    d.device_type.model,
+                    d.device_role.name,
                     str(d.primary_ip4).split("/")[0] if d.primary_ip4 else "",
-                    str(d.tenant), "service not assigned", "", "",
+                    str(d.tenant),
+                    "service not assigned",
+                    "",
+                    "",
                 ]
             data.append(row)
             w = [len(str(i)) if i else 40 for i in row]
             width = [max(width[i], w[i]) for i in range(len(width))]
 
-        workbook = xlsxwriter.Workbook(output, {"remove_timezone": True, "default_date_format": "yyyy-mm-dd"})
+        workbook = xlsxwriter.Workbook(
+            output, {"remove_timezone": True, "default_date_format": "yyyy-mm-dd"}
+        )
         worksheet = workbook.add_worksheet("compliance")
         worksheet.add_table(
-            0, 0, Device.objects.count(), len(header) - 1,
+            0,
+            0,
+            Device.objects.count(),
+            len(header) - 1,
             {"columns": header, "data": data},
         )
         for i, w in enumerate(width):
@@ -368,7 +408,7 @@ class ServiceMappingListView(PermissionRequiredMixin, ObjectListView):
             messages.error(request, "Form is not valid.")
             return redirect(request.get_full_path())
 
-        data     = deepcopy(form.cleaned_data)
+        data = deepcopy(form.cleaned_data)
         services = data["service"]
         if not services:
             messages.error(request, "No services selected.")
@@ -382,14 +422,16 @@ class ServiceMappingListView(PermissionRequiredMixin, ObjectListView):
             get_queue("default").enqueue(
                 "config_officer.worker.check_device_config_compliance", device=device
             )
-        messages.success(request, f"{list(services)} attached to {len(data['pk'])} device(s).")
+        messages.success(
+            request, f"{list(services)} attached to {len(data['pk'])} device(s)."
+        )
         return redirect(request.get_full_path())
 
     def get(self, request, *args, **kwargs):
         if "to_excel" in request.GET:
             output = self._export_to_excel()
             if output:
-                tz       = pytz.timezone(TIME_ZONE)
+                tz = pytz.timezone(TIME_ZONE)
                 filename = f"compliance_{datetime.now().astimezone(tz).strftime('%Y%m%d_%H%M%S')}.xlsx"
                 response = HttpResponse(
                     output,
@@ -417,7 +459,7 @@ class ServiceAssign(PermissionRequiredMixin, View):
     permission_required = ("dcim.view_device",)
 
     def post(self, request):
-        pk_list          = [int(pk) for pk in request.POST.getlist("pk")]
+        pk_list = [int(pk) for pk in request.POST.getlist("pk")]
         selected_devices = Device.objects.filter(pk__in=pk_list)
 
         if not selected_devices.exists():
@@ -441,7 +483,7 @@ class ServiceDetach(PermissionRequiredMixin, View):
     permission_required = ("dcim.view_device",)
 
     def post(self, request):
-        pk_list          = [int(pk) for pk in request.POST.getlist("pk")]
+        pk_list = [int(pk) for pk in request.POST.getlist("pk")]
         selected_devices = Device.objects.filter(pk__in=pk_list)
 
         if not selected_devices.exists():
@@ -450,7 +492,9 @@ class ServiceDetach(PermissionRequiredMixin, View):
 
         ServiceMapping.objects.filter(device__in=selected_devices).delete()
         Compliance.objects.filter(device__in=selected_devices).delete()
-        messages.success(request, f"{selected_devices.count()} device(s) de-attached from service.")
+        messages.success(
+            request, f"{selected_devices.count()} device(s) de-attached from service."
+        )
         return redirect(reverse("plugins:config_officer:service_mapping_list"))
 
 
@@ -458,28 +502,32 @@ class ServiceDetach(PermissionRequiredMixin, View):
 # Running config page (Custom Link target)
 # ---------------------------------------------------------------------------
 
+
 def running_config(request, hostname):
     """Show device running-config page - called via NetBox Custom Link."""
     running = get_device_config(CONFIGS_PATH, hostname, "running")
 
     message: dict = {}
     if not running:
-        message["status"]  = False
+        message["status"] = False
         message["comment"] = "Error reading running config file from directory."
     else:
-        message["status"]         = True
+        message["status"] = True
         message["running_config"] = running
 
     message["repo_state"] = get_device_file_repo_state(
         CONFIGS_REPO_DIR, CONFIGS_SUBPATH, hostname, "running"
     )
 
-    return render(request, "config_officer/device_running_config.html", {"message": message})
+    return render(
+        request, "config_officer/device_running_config.html", {"message": message}
+    )
 
 
 # ---------------------------------------------------------------------------
 # Collect Schedule Views
 # ---------------------------------------------------------------------------
+
 
 class CollectScheduleListView(ObjectListView):
     queryset = CollectSchedule.objects.prefetch_related("devices")
@@ -506,13 +554,11 @@ class CollectScheduleRunNowView(View):
 
     def get(self, request, pk):
         schedule = get_object_or_404(CollectSchedule, pk=pk)
-        from django_rq import get_queue
-        from datetime import datetime
-        from .worker import collect_device_config_task
-        from .models import Collection
 
         queue = get_queue("default")
-        commit_msg = f"schedule_{schedule.name}_{datetime.now().strftime('%Y_%m_%d_%H_%M_%S')}"
+        commit_msg = (
+            f"schedule_{schedule.name}_{datetime.now().strftime('%Y_%m_%d_%H_%M_%S')}"
+        )
 
         for device in schedule.devices.all():
             collect_task = Collection.objects.create(
@@ -521,10 +567,14 @@ class CollectScheduleRunNowView(View):
             )
             queue.enqueue(collect_device_config_task, collect_task.pk, commit_msg)
 
-        messages.success(request, f"The collection process has been queued for {schedule.devices.count()} devices.")
+        messages.success(
+            request,
+            f"The collection process has been queued for {schedule.devices.count()} devices.",
+        )
         return redirect("plugins:config_officer:schedule_list")
 
     default_return_url = "plugins:config_officer:schedule_list"
+
 
 class CollectScheduleJobsView(ObjectJobsView):
     queryset = CollectSchedule.objects.all()

@@ -12,7 +12,6 @@ import socket
 from datetime import datetime
 
 import pytz
-from django.db import transaction
 
 from scrapli.driver.core import IOSXEDriver, IOSXRDriver, NXOSDriver
 
@@ -41,7 +40,7 @@ logger = logging.getLogger(__name__)
 
 PLATFORMS: dict[str, type] = {
     "iosxe": IOSXEDriver,
-    "nxos":  NXOSDriver,
+    "nxos": NXOSDriver,
     "iosxr": IOSXRDriver,
 }
 
@@ -49,14 +48,21 @@ PLATFORMS: dict[str, type] = {
 def _resolve_credentials(hostname: str) -> tuple[str, str, int]:
     """Return (username, password, port) for *hostname*, preferring per-device overrides."""
     device_conf = DEVICE_SPECIFIC_CONF.get(hostname, {})
-    username    = device_conf.get("DEVICE_USERNAME", DEVICE_USERNAME)
-    password    = device_conf.get("DEVICE_PASSWORD", DEVICE_PASSWORD)
-    port        = int(device_conf.get("DEVICE_SSH_PORT", DEVICE_SSH_PORT))
+    username = device_conf.get("DEVICE_USERNAME", DEVICE_USERNAME)
+    password = device_conf.get("DEVICE_PASSWORD", DEVICE_PASSWORD)
+    port = int(device_conf.get("DEVICE_SSH_PORT", DEVICE_SSH_PORT))
 
     if device_conf:
-        logger.info("[CREDS] Per-device config for %r: user=%r port=%d", hostname, username, port)
+        logger.info(
+            "[CREDS] Per-device config for %r: user=%r port=%d",
+            hostname,
+            username,
+            port,
+        )
     else:
-        logger.debug("[CREDS] Global config for %r: user=%r port=%d", hostname, username, port)
+        logger.debug(
+            "[CREDS] Global config for %r: user=%r port=%d", hostname, username, port
+        )
 
     return username, password, port
 
@@ -67,39 +73,53 @@ def sanitize_config(config_text: str) -> str:
         r"^\s*(?:{})\b".format("|".join(re.escape(p) for p in SENSITIVE_PREFIXES)),
         re.IGNORECASE,
     )
-    return "\n".join(line for line in config_text.splitlines() if not pattern.match(line))
+    return "\n".join(
+        line for line in config_text.splitlines() if not pattern.match(line)
+    )
 
 
-def _collect_iosxe(conn, host_ip: str) -> tuple[ParsedDevice, dict[str, ParsedInterface]]:
-    device  = IOSXEParser.parse_show_version(_send(conn, "show version"))
+def _collect_iosxe(
+    conn, host_ip: str
+) -> tuple[ParsedDevice, dict[str, ParsedInterface]]:
+    device = IOSXEParser.parse_show_version(_send(conn, "show version"))
     ifaces: dict[str, ParsedInterface] = {}
 
     if COLLECT_INTERFACES_DATA:
-        ifaces = IOSXEParser.parse_show_interfaces(_send(conn, "show interfaces"), host_ip)
+        ifaces = IOSXEParser.parse_show_interfaces(
+            _send(conn, "show interfaces"), host_ip
+        )
         IOSXEParser.parse_show_ip_interface(_send(conn, "show ip interface"), ifaces)
         logger.info("[COLLECT][IOSXE] Parsed %d interfaces", len(ifaces))
 
     return device, ifaces
 
 
-def _collect_nxos(conn, host_ip: str) -> tuple[ParsedDevice, dict[str, ParsedInterface]]:
-    device  = NXOSParser.parse_show_version(_send(conn, "show version"))
+def _collect_nxos(
+    conn, host_ip: str
+) -> tuple[ParsedDevice, dict[str, ParsedInterface]]:
+    device = NXOSParser.parse_show_version(_send(conn, "show version"))
     ifaces: dict[str, ParsedInterface] = {}
 
     if COLLECT_INTERFACES_DATA:
-        ifaces = NXOSParser.parse_show_interfaces(_send(conn, "show interface"), host_ip)
+        ifaces = NXOSParser.parse_show_interfaces(
+            _send(conn, "show interface"), host_ip
+        )
         logger.info("[COLLECT][NXOS] Parsed %d interfaces", len(ifaces))
 
     return device, ifaces
 
 
-def _collect_iosxr(conn, host_ip: str) -> tuple[ParsedDevice, dict[str, ParsedInterface]]:
+def _collect_iosxr(
+    conn, host_ip: str
+) -> tuple[ParsedDevice, dict[str, ParsedInterface]]:
     # IOS-XR 'show version' is close enough to IOS-XE for our purposes
-    device  = IOSXEParser.parse_show_version(_send(conn, "show version"))
+    device = IOSXEParser.parse_show_version(_send(conn, "show version"))
     ifaces: dict[str, ParsedInterface] = {}
 
     if COLLECT_INTERFACES_DATA:
-        ifaces = IOSXEParser.parse_show_interfaces(_send(conn, "show interfaces"), host_ip)
+        ifaces = IOSXEParser.parse_show_interfaces(
+            _send(conn, "show interfaces"), host_ip
+        )
         logger.info("[COLLECT][IOSXR] Parsed %d interfaces", len(ifaces))
 
     return device, ifaces
@@ -107,7 +127,7 @@ def _collect_iosxr(conn, host_ip: str) -> tuple[ParsedDevice, dict[str, ParsedIn
 
 _PLATFORM_COLLECTORS = {
     "iosxe": _collect_iosxe,
-    "nxos":  _collect_nxos,
+    "nxos": _collect_nxos,
     "iosxr": _collect_iosxr,
 }
 
@@ -128,42 +148,47 @@ def _ssh_config_path() -> str:
 # Main collector
 # ---------------------------------------------------------------------------
 
+
 class CollectDeviceData:
     """
     Connect to a device, collect its state, and persist results to NetBox.
     """
 
-    def __init__(self, collect_task, ip: str = "", hostname_ipam: str = "", platform: str = ""):
-        self.task          = collect_task
+    def __init__(
+        self, collect_task, ip: str = "", hostname_ipam: str = "", platform: str = ""
+    ):
+        self.task = collect_task
         self.hostname_ipam = hostname_ipam.strip()
-        self.platform      = platform if platform in PLATFORMS else "iosxe"
+        self.platform = platform if platform in PLATFORMS else "iosxe"
 
         username, password, port = _resolve_credentials(self.hostname_ipam)
 
         self._base_kwargs: dict = {
-            "host":            ip,
-            "auth_username":   username,
-            "auth_password":   password,
+            "host": ip,
+            "auth_username": username,
+            "auth_password": password,
             "auth_strict_key": False,
-            "port":            port,
-            "timeout_socket":  20,
-            "timeout_ops":     60,
+            "port": port,
+            "timeout_socket": 20,
+            "timeout_ops": 60,
             "ssh_config_file": _ssh_config_path(),
         }
 
         # Populated during collection
-        self._device:     ParsedDevice            = ParsedDevice()
+        self._device: ParsedDevice = ParsedDevice()
         self._interfaces: dict[str, ParsedInterface] = {}
-        self._used_kwargs: dict                   = {}
+        self._used_kwargs: dict = {}
 
         logger.info(
             "[COLLECT] Initialized: %r host=%s platform=%s port=%d",
-            self.hostname_ipam, ip, self.platform, port,
+            self.hostname_ipam,
+            ip,
+            self.platform,
+            port,
         )
 
-
     def _check_reachability(self) -> None:
-        host    = self._base_kwargs["host"]
+        host = self._base_kwargs["host"]
         timeout = self._base_kwargs["timeout_socket"]
 
         for port in (22, 23):
@@ -179,14 +204,13 @@ class CollectDeviceData:
             message="Device unreachable on ports 22 and 23",
         )
 
-
     def _connect_and_collect(self) -> None:
         """Try SSH, fall back to Telnet. Raises CollectionException on total failure."""
-        host      = self._base_kwargs["host"]
-        driver    = PLATFORMS[self.platform]
+        host = self._base_kwargs["host"]
+        driver = PLATFORMS[self.platform]
         collector = _PLATFORM_COLLECTORS[self.platform]
 
-        # --- SSH ---
+        # SSH
         logger.debug("[CONNECT] Attempting SSH to %s", host)
         try:
             with driver(**self._base_kwargs) as conn:
@@ -197,7 +221,7 @@ class CollectDeviceData:
         except Exception as e:
             logger.warning("[CONNECT] SSH failed: %s: %s", type(e).__name__, e)
 
-        # --- Telnet fallback ---
+        # Telnet fallback
         logger.debug("[CONNECT] Falling back to Telnet on %s", host)
         telnet_kwargs = {**self._base_kwargs, "port": 23, "transport": "telnet"}
         try:
@@ -212,10 +236,9 @@ class CollectDeviceData:
                 message="Cannot login via SSH or Telnet",
             )
 
-
     def _check_serial_match(self, device_netbox) -> None:
         """Raise CollectionException if the collected serial doesn't match NetBox."""
-        nb_sn  = device_netbox.serial
+        nb_sn = device_netbox.serial
         dev_sn = self._device.serial
         if nb_sn and dev_sn and nb_sn != dev_sn:
             raise CollectionException(
@@ -223,16 +246,15 @@ class CollectDeviceData:
                 message=f"Serial mismatch: NetBox={nb_sn!r} Device={dev_sn!r}",
             )
 
-
     def _update_custom_fields(self, device_netbox) -> None:
-        tz   = pytz.timezone(TIME_ZONE)
-        now  = datetime.now(tz)
+        tz = pytz.timezone(TIME_ZONE)
+        now = datetime.now(tz)
         port = self._used_kwargs.get("port", self._base_kwargs["port"])
 
         fields = {
             CF_COLLECTION_STATUS: "temporary value",
-            CF_SSH:               port == 22,
-            CF_SW_VERSION:        self._device.version.upper() if self._device.version else "",
+            CF_SSH: port == 22,
+            CF_SW_VERSION: self._device.version.upper() if self._device.version else "",
             CF_LAST_COLLECT_DATE: now.date(),
             CF_LAST_COLLECT_TIME: now.strftime("%H:%M:%S"),
         }
@@ -244,7 +266,6 @@ class CollectDeviceData:
 
         device_netbox.save()
 
-
     def _save_running_config(self) -> None:
         os.makedirs(CONFIGS_PATH, exist_ok=True)
         filename = os.path.join(CONFIGS_PATH, f"{self.hostname_ipam}_running.txt")
@@ -252,20 +273,21 @@ class CollectDeviceData:
         driver = PLATFORMS[self.platform]
         with driver(**self._used_kwargs) as conn:
             conn.send_command("terminal length 0")
-            raw    = conn.send_command("show running-config").result
-            clean  = sanitize_config(raw)
+            raw = conn.send_command("show running-config").result
+            clean = sanitize_config(raw)
 
         with open(filename, "w") as fh:
             fh.write(clean)
 
         logger.info("[COLLECT] Running config saved -> %s", filename)
 
-
     # Main entry point
     def collect_information(self) -> None:
         logger.info(
             "[COLLECT] ===== START %r host=%s platform=%s =====",
-            self.hostname_ipam, self._base_kwargs["host"], self.platform,
+            self.hostname_ipam,
+            self._base_kwargs["host"],
+            self.platform,
         )
 
         self._check_reachability()

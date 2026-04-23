@@ -16,7 +16,10 @@ from .models import ParsedDevice, ParsedInterface
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
 # Helpers
+# ---------------------------------------------------------------------------
+
 
 def normalize_lag_name(raw: str) -> str:
     """Convert NX-OS shorthand (e.g. 'Po103') to NetBox canonical form."""
@@ -24,7 +27,10 @@ def normalize_lag_name(raw: str) -> str:
     return f"port-channel{number}"
 
 
+# ---------------------------------------------------------------------------
 # IOS-XE / IOS-XR parser
+# ---------------------------------------------------------------------------
+
 
 class IOSXEParser:
     """
@@ -45,13 +51,17 @@ class IOSXEParser:
                     logger.debug("[PARSER][IOSXE] hostname=%r", result.hostname)
 
             if not result.version:
-                m = re.search(r"(?:Cisco IOS.*?|)Version\s+([\w.\(\):]+)", line, re.IGNORECASE)
+                m = re.search(
+                    r"(?:Cisco IOS.*?|)Version\s+([\w.\(\):]+)", line, re.IGNORECASE
+                )
                 if m:
                     result.version = m.group(1)
                     logger.debug("[PARSER][IOSXE] version=%r", result.version)
 
             if not result.pid:
-                m = re.search(r"[Cc]isco\s+([\w\-]+).*?(?:[Pp]rocessor|bytes of memory)", line)
+                m = re.search(
+                    r"[Cc]isco\s+([\w\-]+).*?(?:[Pp]rocessor|bytes of memory)", line
+                )
                 if m:
                     result.pid = m.group(1)
                     logger.debug("[PARSER][IOSXE] pid=%r", result.pid)
@@ -84,12 +94,16 @@ class IOSXEParser:
             if m:
                 name = m.group(1).strip()
                 current = ParsedInterface(name=name)
-                current.admin_up = ("administratively" not in line.lower()) and m.group(3) == "up"
-                current.link_up  = m.group(4) == "up"
+                current.admin_up = ("administratively" not in line.lower()) and m.group(
+                    3
+                ) == "up"
+                current.link_up = m.group(4) == "up"
                 ifaces[name] = current
                 logger.debug(
                     "[PARSER][IOSXE] Interface=%r admin_up=%s link_up=%s",
-                    name, current.admin_up, current.link_up,
+                    name,
+                    current.admin_up,
+                    current.link_up,
                 )
                 continue
 
@@ -113,9 +127,11 @@ class IOSXEParser:
                 continue
 
             # Speed / duplex
-            m = re.match(r"^\s+.*?(\d+(?:Mb|Gb|Kb)?ps),?\s+([\w-]+)-duplex", line, re.IGNORECASE)
+            m = re.match(
+                r"^\s+.*?(\d+(?:Mb|Gb|Kb)?ps),?\s+([\w-]+)-duplex", line, re.IGNORECASE
+            )
             if m:
-                current.speed  = m.group(1)
+                current.speed = m.group(1)
                 current.duplex = m.group(2).lower()
                 continue
 
@@ -153,7 +169,9 @@ class IOSXEParser:
         return ifaces
 
     @staticmethod
-    def parse_show_ip_interface(output: str, ifaces: dict[str, ParsedInterface]) -> None:
+    def parse_show_ip_interface(
+        output: str, ifaces: dict[str, ParsedInterface]
+    ) -> None:
         """
         Supplement interface data from 'show ip interface'.
         Adds VRF / DHCP info that may be absent from 'show interfaces'.
@@ -189,7 +207,10 @@ class IOSXEParser:
                 continue
 
 
+# ---------------------------------------------------------------------------
 # NX-OS parser
+# ---------------------------------------------------------------------------
+
 
 class NXOSParser:
     """
@@ -210,14 +231,18 @@ class NXOSParser:
                     logger.debug("[PARSER][NXOS] hostname=%r", result.hostname)
 
             if not result.version:
-                m = re.search(r"(?:NXOS|system):\s+version\s+(\S+)", line, re.IGNORECASE)
+                m = re.search(
+                    r"(?:NXOS|system):\s+version\s+(\S+)", line, re.IGNORECASE
+                )
                 if m:
                     result.version = m.group(1)
                     logger.debug("[PARSER][NXOS] version=%r", result.version)
 
             if not result.pid:
                 m = re.search(
-                    r"cisco\s+(Nexus[\s\w]+?)\s+(?:Chassis|processor)", line, re.IGNORECASE
+                    r"cisco\s+(Nexus[\s\w]+?)\s+(?:Chassis|processor)",
+                    line,
+                    re.IGNORECASE,
                 )
                 if m:
                     result.pid = m.group(1).strip()
@@ -249,7 +274,9 @@ class NXOSParser:
                 current = ParsedInterface(name=name)
                 current.link_up = m.group(2).lower() == "up"
                 ifaces[name] = current
-                logger.debug("[PARSER][NXOS] Interface=%s link_up=%s", name, current.link_up)
+                logger.debug(
+                    "[PARSER][NXOS] Interface=%s link_up=%s", name, current.link_up
+                )
                 continue
 
             if current is None:
@@ -274,7 +301,9 @@ class NXOSParser:
                 continue
 
             # MAC
-            m = re.search(r"address:\s+([\da-f]{4}\.[\da-f]{4}\.[\da-f]{4})", line, re.IGNORECASE)
+            m = re.search(
+                r"address:\s+([\da-f]{4}\.[\da-f]{4}\.[\da-f]{4})", line, re.IGNORECASE
+            )
             if m:
                 current.mac = m.group(1)
                 continue
@@ -282,7 +311,7 @@ class NXOSParser:
             # MTU + bandwidth
             m = re.match(r"^\s+MTU\s+(\d+)\s+bytes,\s+BW\s+(\d+)\s+Kbit", line)
             if m:
-                current.mtu   = int(m.group(1))
+                current.mtu = int(m.group(1))
                 current.speed = f"{int(m.group(2)) // 1000}Mbps"
                 continue
 
@@ -290,13 +319,15 @@ class NXOSParser:
             m = re.match(r"^\s+(full|half)-duplex,\s+(\d+)\s+Mb/s", line, re.IGNORECASE)
             if m:
                 current.duplex = m.group(1).lower()
-                current.speed  = f"{m.group(2)}Mbps"
+                current.speed = f"{m.group(2)}Mbps"
                 continue
 
             # IP
-            m = re.match(rf"^\s+Internet Address is\s+({REGEX_IPP})", line, re.IGNORECASE)
+            m = re.match(
+                rf"^\s+Internet Address is\s+({REGEX_IPP})", line, re.IGNORECASE
+            )
             if m:
-                current.ip      = m.group(1)
+                current.ip = m.group(1)
                 current.is_mgmt = m.group(1).split("/")[0] == mgmt_ip
                 continue
 

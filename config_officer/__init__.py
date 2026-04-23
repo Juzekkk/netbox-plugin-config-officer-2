@@ -20,4 +20,5 @@ class NetboxConfigOfficer(PluginConfig):
     default_settings = {}
     caching_config = {}
 
+
 config = NetboxConfigOfficer

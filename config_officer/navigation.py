@@ -1,5 +1,4 @@
-from netbox.plugins import PluginMenuButton, PluginMenuItem 
-from netbox.choices import ButtonColorChoices
+from netbox.plugins import PluginMenuItem
 
 menu_items = (
     PluginMenuItem(

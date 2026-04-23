@@ -14,7 +14,7 @@
     </a>
 </div>
 
-{# ── Summary card ─────────────────────────────────────────────────────────── #}
+{# -- Summary card ----------------------------------------------------------- #}
 <div class="card mb-3">
     <div class="card-header"><strong>Service compliance status</strong></div>
     <table class="table table-hover mb-0">
@@ -28,9 +28,9 @@
             <th>Status</th>
             <td>
                 {% if record.status == 'compliance' %}
-                    <span class="badge bg-success fs-6">{{ record.status }}</span>
+                <span class="badge bg-success fs-6">{{ record.status }}</span>
                 {% else %}
-                    <span class="badge bg-danger fs-6">{{ record.status }}</span>
+                <span class="badge bg-danger fs-6">{{ record.status }}</span>
                 {% endif %}
             </td>
         </tr>
@@ -42,11 +42,11 @@
             <th>Attached services</th>
             <td>
                 {% for service in record.get_services %}
-                    <a href="{% url 'plugins:config_officer:service' pk=service.pk %}">
-                        {{ service.name }}
-                    </a><br>
+                <a href="{% url 'plugins:config_officer:service' pk=service.pk %}">
+                    {{ service.name }}
+                </a><br>
                 {% empty %}
-                    <span class="text-muted">None</span>
+                <span class="text-muted">None</span>
                 {% endfor %}
             </td>
         </tr>
@@ -54,18 +54,18 @@
             <th>Matched templates</th>
             <td>
                 {% for template in record.get_device_templates %}
-                    <a href="{% url 'plugins:config_officer:template' pk=template.pk %}">
-                        {{ template.name }}
-                    </a><br>
+                <a href="{% url 'plugins:config_officer:template' pk=template.pk %}">
+                    {{ template.name }}
+                </a><br>
                 {% empty %}
-                    <span class="text-muted">None</span>
+                <span class="text-muted">None</span>
                 {% endfor %}
             </td>
         </tr>
     </table>
 </div>
 
-{# ── Config diff card ─────────────────────────────────────────────────────── #}
+{# -- Config diff card ------------------------------------------------------- #}
 <div class="card mb-3">
     <div class="card-header"><strong>Configuration compliance</strong></div>
     <div class="card-body p-0">
@@ -82,7 +82,7 @@
     </div>
 </div>
 
-{# ── All matched templates ─────────────────────────────────────────────────── #}
+{# -- All matched templates --------------------------------------------------- #}
 <div class="card mb-3">
     <div class="card-header"><strong>All matched templates</strong></div>
     <table class="table table-hover mb-0">
@@ -93,24 +93,26 @@
             </tr>
         </thead>
         <tbody>
-        {% for template in record.get_device_templates %}
+            {% for template in record.get_device_templates %}
             <tr>
                 <td><a href="{{ template.get_absolute_url }}">{{ template }}</a></td>
                 <td>
                     <pre class="mb-0 text-primary"><samp>{{ template.configuration }}</samp></pre>
                 </td>
             </tr>
-        {% empty %}
-            <tr><td colspan="2" class="text-muted">No matched templates</td></tr>
-        {% endfor %}
+            {% empty %}
+            <tr>
+                <td colspan="2" class="text-muted">No matched templates</td>
+            </tr>
+            {% endfor %}
         </tbody>
     </table>
 </div>
 
-{# ── Running config (collapsible) ─────────────────────────────────────────── #}
+{# -- Running config (collapsible) ------------------------------------------- #}
 <div class="mb-3">
-    <button type="button" class="btn btn-outline-secondary btn-sm"
-            data-bs-toggle="collapse" data-bs-target="#running-config-collapse">
+    <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-toggle="collapse"
+        data-bs-target="#running-config-collapse">
         <i class="mdi mdi-console"></i> Show / hide running config
     </button>
     <span class="text-muted ms-2">

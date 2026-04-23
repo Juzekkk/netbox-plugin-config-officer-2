@@ -24,21 +24,23 @@ from .models import ParsedInterface
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
 # Interface type inference
+# ---------------------------------------------------------------------------
 
 _TYPE_RULES: list[tuple[str, str]] = [
-    (r"^(eth|ethernet).*100g",          InterfaceTypeChoices.TYPE_100GE_CFP),
-    (r"^(eth|ethernet).*40g",           InterfaceTypeChoices.TYPE_40GE_QSFP_PLUS),
-    (r"^(eth|ethernet).*10g",           InterfaceTypeChoices.TYPE_10GE_SFP_PLUS),
-    (r"^(eth|ethernet)",                InterfaceTypeChoices.TYPE_1GE_FIXED),
-    (r"^(gigabit|gi)\d",               InterfaceTypeChoices.TYPE_1GE_FIXED),
-    (r"^(tengig|te\d|ten)",            InterfaceTypeChoices.TYPE_10GE_SFP_PLUS),
-    (r"^(fortygig|fo\d)",              InterfaceTypeChoices.TYPE_40GE_QSFP_PLUS),
-    (r"^(hundredgig|hu\d)",            InterfaceTypeChoices.TYPE_100GE_CFP),
-    (r"^(fastethernet|fa\d)",          InterfaceTypeChoices.TYPE_100ME_FIXED),
+    (r"^(eth|ethernet).*100g", InterfaceTypeChoices.TYPE_100GE_CFP),
+    (r"^(eth|ethernet).*40g", InterfaceTypeChoices.TYPE_40GE_QSFP_PLUS),
+    (r"^(eth|ethernet).*10g", InterfaceTypeChoices.TYPE_10GE_SFP_PLUS),
+    (r"^(eth|ethernet)", InterfaceTypeChoices.TYPE_1GE_FIXED),
+    (r"^(gigabit|gi)\d", InterfaceTypeChoices.TYPE_1GE_FIXED),
+    (r"^(tengig|te\d|ten)", InterfaceTypeChoices.TYPE_10GE_SFP_PLUS),
+    (r"^(fortygig|fo\d)", InterfaceTypeChoices.TYPE_40GE_QSFP_PLUS),
+    (r"^(hundredgig|hu\d)", InterfaceTypeChoices.TYPE_100GE_CFP),
+    (r"^(fastethernet|fa\d)", InterfaceTypeChoices.TYPE_100ME_FIXED),
     (r"^(vlan|svi|bvi|loopback|lo\d|tunnel|tun)", InterfaceTypeChoices.TYPE_VIRTUAL),
-    (r"^(port.channel|po\d)",          InterfaceTypeChoices.TYPE_LAG),
-    (r"^mgmt",                         InterfaceTypeChoices.TYPE_1GE_FIXED),
+    (r"^(port.channel|po\d)", InterfaceTypeChoices.TYPE_LAG),
+    (r"^mgmt", InterfaceTypeChoices.TYPE_1GE_FIXED),
 ]
 
 
@@ -50,7 +52,10 @@ def infer_interface_type(name: str) -> str:
     return InterfaceTypeChoices.TYPE_OTHER
 
 
+# ---------------------------------------------------------------------------
 # LAG helpers
+# ---------------------------------------------------------------------------
+
 
 def _ensure_lags(device_netbox, parsed: dict[str, ParsedInterface]) -> None:
     """Create any LAG interfaces referenced by member interfaces that don't yet exist."""
@@ -78,8 +83,7 @@ def _ensure_lags(device_netbox, parsed: dict[str, ParsedInterface]) -> None:
 def _attach_lags(device_netbox, parsed: dict[str, ParsedInterface]) -> None:
     """Assign member interfaces to their LAG parent."""
     iface_map: dict[str, Interface] = {
-        i.name.lower(): i
-        for i in Interface.objects.filter(device=device_netbox)
+        i.name.lower(): i for i in Interface.objects.filter(device=device_netbox)
     }
 
     for name, pif in parsed.items():
@@ -87,13 +91,15 @@ def _attach_lags(device_netbox, parsed: dict[str, ParsedInterface]) -> None:
             continue
 
         member = iface_map.get(name.lower())
-        lag    = iface_map.get(pif.lag.lower())
+        lag = iface_map.get(pif.lag.lower())
 
         if not member:
             logger.warning("[LAG] Member interface %r not found in NetBox", name)
             continue
         if not lag:
-            logger.warning("[LAG] LAG interface %r not found in NetBox (member=%s)", pif.lag, name)
+            logger.warning(
+                "[LAG] LAG interface %r not found in NetBox (member=%s)", pif.lag, name
+            )
             continue
 
         if member.lag_id != lag.pk:
@@ -102,7 +108,10 @@ def _attach_lags(device_netbox, parsed: dict[str, ParsedInterface]) -> None:
             logger.debug("[LAG] %s -> %s", name, pif.lag)
 
 
+# ---------------------------------------------------------------------------
 # MAC address helper
+# ---------------------------------------------------------------------------
+
 
 def _assign_mac(iface: Interface, mac_str: str) -> None:
     """
@@ -121,7 +130,8 @@ def _assign_mac(iface: Interface, mac_str: str) -> None:
         if conflict:
             logger.warning(
                 "[MAC] %s already assigned as primary MAC elsewhere - skipping %s",
-                mac_str, iface.name,
+                mac_str,
+                iface.name,
             )
             return
 
@@ -129,7 +139,10 @@ def _assign_mac(iface: Interface, mac_str: str) -> None:
         iface.save(update_fields=["primary_mac_address"])
 
 
+# ---------------------------------------------------------------------------
 # IP address sync
+# ---------------------------------------------------------------------------
+
 
 def _sync_ips(device_netbox, iface: Interface, pif: ParsedInterface) -> None:
     """Create / update IPAddress objects and attach them to *iface*."""
@@ -139,7 +152,9 @@ def _sync_ips(device_netbox, iface: Interface, pif: ParsedInterface) -> None:
     candidates.extend((addr, True) for addr in pif.secondary)
 
     for addr, is_secondary in candidates:
-        logger.debug("[IP] %s: syncing %s (secondary=%s)", iface.name, addr, is_secondary)
+        logger.debug(
+            "[IP] %s: syncing %s (secondary=%s)", iface.name, addr, is_secondary
+        )
         try:
             ip_obj, created = IPAddress.objects.get_or_create(
                 address=addr,
@@ -179,12 +194,15 @@ def _get_or_create_vrf(name: str) -> VRF:
         return VRF.objects.create(name=name, enforce_unique=False)
 
 
+# ---------------------------------------------------------------------------
 # Interface field update helpers
+# ---------------------------------------------------------------------------
+
 
 def _apply_speed(iface: Interface, speed_str: str) -> bool:
     """Convert e.g. '1000Mbps' -> 1_000_000 kbps and apply to iface. Returns True if changed."""
     try:
-        mbps      = int(speed_str.replace("Mbps", ""))
+        mbps = int(speed_str.replace("Mbps", ""))
         speed_val = mbps * 1000  # NetBox stores speed in Kbps
         if iface.speed != speed_val:
             iface.speed = speed_val
@@ -228,9 +246,14 @@ def _update_existing_interface(iface: Interface, pif: ParsedInterface) -> bool:
     return changed
 
 
+# ---------------------------------------------------------------------------
 # Public API
+# ---------------------------------------------------------------------------
 
-def sync_interfaces_to_netbox(device_netbox, parsed: dict[str, ParsedInterface]) -> None:
+
+def sync_interfaces_to_netbox(
+    device_netbox, parsed: dict[str, ParsedInterface]
+) -> None:
     """
     Create or update Interface objects in NetBox from *parsed* device data.
 
@@ -255,11 +278,15 @@ def sync_interfaces_to_netbox(device_netbox, parsed: dict[str, ParsedInterface])
 
         logger.debug(
             "[SYNC] %s mac=%s mtu=%s speed=%s desc=%r",
-            name, pif.mac, pif.mtu, pif.speed, pif.description,
+            name,
+            pif.mac,
+            pif.mtu,
+            pif.speed,
+            pif.description,
         )
 
         if name in existing:
-            iface   = existing[name]
+            iface = existing[name]
             changed = _update_existing_interface(iface, pif)
             if changed:
                 iface.save()

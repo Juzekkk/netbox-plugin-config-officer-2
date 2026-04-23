@@ -14,7 +14,6 @@ from __future__ import annotations
 import ipaddress
 import logging
 import os
-import re
 import time
 from datetime import datetime
 
@@ -53,7 +52,8 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Small utilities
 # ---------------------------------------------------------------------------
- 
+
+
 def _strip_volatile_lines(text: str) -> str:
     """Remove timestamp / metadata lines before comparing two config versions."""
     return "\n".join(
@@ -61,8 +61,8 @@ def _strip_volatile_lines(text: str) -> str:
         for line in text.splitlines()
         if not any(p.search(line) for p in VOLATILE_LINE_PATTERNS_COMPILED)
     )
- 
- 
+
+
 def _get_ssh_env(key_path: str | None) -> dict[str, str]:
     """
     Build GIT_SSH_COMMAND that uses the specified key and disables interactive prompts.
@@ -80,12 +80,12 @@ def _get_ssh_env(key_path: str | None) -> dict[str, str]:
     )
     logger.debug("[GIT] GIT_SSH_COMMAND: %s", cmd)
     return {"GIT_SSH_COMMAND": cmd}
- 
- 
+
+
 def _apply_ssh_env(key_path: str | None) -> None:
     os.environ.update(_get_ssh_env(key_path))
- 
- 
+
+
 def get_active_collect_task_count() -> int:
     """Return the number of pending/running global collection tasks."""
     return Collection.objects.filter(
@@ -93,24 +93,27 @@ def get_active_collect_task_count() -> int:
         | Q(status__iexact=CollectStatusChoices.STATUS_RUNNING),
         message__iexact=GLOBAL_TASK_INIT_MESSAGE,
     ).count()
- 
- 
+
+
 def _set_collection_status(device_nb, value: bool) -> None:
     """Persist the collection-status custom field for *device_nb*."""
     device_nb.custom_field_data[CF_COLLECTION_STATUS] = value
     device_nb.save()
- 
- 
+
+
 # ---------------------------------------------------------------------------
 # Git helpers
 # ---------------------------------------------------------------------------
- 
+
+
 def _open_or_init_repo() -> tuple[Repo, bool]:
     """Open an existing repo or initialise a new one. Returns (repo, is_new)."""
     try:
         repo = Repo(CONFIGS_REPO_DIR)
-        sha  = repo.head.commit.hexsha[:8] if repo.head.is_valid() else "none"
-        logger.debug("[GIT] Opened existing repo at %s (HEAD=%s)", CONFIGS_REPO_DIR, sha)
+        sha = repo.head.commit.hexsha[:8] if repo.head.is_valid() else "none"
+        logger.debug(
+            "[GIT] Opened existing repo at %s (HEAD=%s)", CONFIGS_REPO_DIR, sha
+        )
         return repo, False
     except (InvalidGitRepositoryError, NoSuchPathError):
         logger.info("[GIT] No repo at %s - initialising", CONFIGS_REPO_DIR)
@@ -118,49 +121,53 @@ def _open_or_init_repo() -> tuple[Repo, bool]:
         repo = Repo.init(CONFIGS_REPO_DIR)
         logger.info("[GIT] Initialised new repo at %s", CONFIGS_REPO_DIR)
         return repo, True
- 
- 
+
+
 def _ensure_safe_directory(repo: Repo) -> None:
     """Mark the repo path as safe.directory to avoid dubious-ownership errors."""
     repo_path = os.path.abspath(repo.working_tree_dir)
     try:
-        existing = repo.git.config("--global", "--get-all", "safe.directory").splitlines()
+        existing = repo.git.config(
+            "--global", "--get-all", "safe.directory"
+        ).splitlines()
     except GitCommandError:
         existing = []
- 
+
     if repo_path in existing:
         return
- 
+
     try:
         repo.git.config("--global", "--add", "safe.directory", repo_path)
         logger.info("[GIT] Added safe.directory: %s", repo_path)
     except Exception:
         logger.exception("[GIT] Failed to set safe.directory")
- 
- 
+
+
 def _ensure_branch(repo: Repo) -> None:
     """Ensure GIT_REMOTE_BRANCH is checked out, creating it if needed."""
     try:
         current = repo.active_branch.name
     except TypeError:
         current = None  # detached HEAD
- 
+
     if current == GIT_REMOTE_BRANCH:
         return
- 
+
     if GIT_REMOTE_BRANCH in repo.heads:
         logger.info("[GIT] Checking out branch '%s'", GIT_REMOTE_BRANCH)
         repo.git.checkout(GIT_REMOTE_BRANCH)
         return
- 
+
     try:
         repo.git.checkout("-b", GIT_REMOTE_BRANCH, f"origin/{GIT_REMOTE_BRANCH}")
         logger.info("[GIT] Checked out branch '%s' from origin", GIT_REMOTE_BRANCH)
     except Exception:
-        logger.warning("[GIT] Remote branch '%s' not found - creating locally", GIT_REMOTE_BRANCH)
+        logger.warning(
+            "[GIT] Remote branch '%s' not found - creating locally", GIT_REMOTE_BRANCH
+        )
         repo.git.checkout("-b", GIT_REMOTE_BRANCH)
- 
- 
+
+
 def _ensure_remote(repo: Repo) -> bool:
     """
     Make sure the configured remote exists with the right URL.
@@ -169,7 +176,7 @@ def _ensure_remote(repo: Repo) -> bool:
     if not GIT_REMOTE_ENABLED or not GIT_REMOTE_URL:
         logger.debug("[GIT] Remote push disabled or not configured")
         return False
- 
+
     remote_names = [r.name for r in repo.remotes]
     if GIT_REMOTE_NAME not in remote_names:
         logger.info("[GIT] Adding remote %r -> %s", GIT_REMOTE_NAME, GIT_REMOTE_URL)
@@ -177,12 +184,14 @@ def _ensure_remote(repo: Repo) -> bool:
     else:
         remote = repo.remotes[GIT_REMOTE_NAME]
         if remote.url != GIT_REMOTE_URL:
-            logger.info("[GIT] Updating remote URL: %s -> %s", remote.url, GIT_REMOTE_URL)
+            logger.info(
+                "[GIT] Updating remote URL: %s -> %s", remote.url, GIT_REMOTE_URL
+            )
             remote.set_url(GIT_REMOTE_URL)
- 
+
     return True
- 
- 
+
+
 def _initial_pull(repo: Repo) -> None:
     """
     On first repo init: pull remote history so we can push later without conflict.
@@ -198,15 +207,19 @@ def _initial_pull(repo: Repo) -> None:
         logger.warning("[GIT] Initial pull failed (remote may be empty): %s", exc)
     except Exception:
         logger.exception("[GIT] Unexpected error during initial pull")
- 
- 
+
+
 def _push_to_remote(repo: Repo) -> str:
     """Push committed changes. Returns a short status string."""
     _apply_ssh_env(GIT_REMOTE_KEY)
     try:
         results = repo.remotes[GIT_REMOTE_NAME].push(GIT_REMOTE_BRANCH)
         for info in results:
-            logger.info("[GIT] Push result: flags=%s summary=%r", info.flags, info.summary.strip())
+            logger.info(
+                "[GIT] Push result: flags=%s summary=%r",
+                info.flags,
+                info.summary.strip(),
+            )
         return "pushed"
     except GitCommandError as exc:
         logger.error("[GIT] Push failed: %s", exc)
@@ -214,26 +227,26 @@ def _push_to_remote(repo: Repo) -> str:
     except Exception:
         logger.exception("[GIT] Push failed (unexpected)")
         return "push_failed:unexpected"
- 
- 
+
+
 def _evaluate_staged_files(repo: Repo) -> tuple[list[str], list[str]]:
     """
     For each staged file decide whether it contains real config changes or
     only volatile-line (timestamp) changes.
- 
+
     Timestamp-only files are restored from HEAD so they are not committed.
     Returns (real_changes, timestamp_only).
     """
-    real_changes:    list[str] = []
-    timestamp_only:  list[str] = []
- 
+    real_changes: list[str] = []
+    timestamp_only: list[str] = []
+
     for diff_item in repo.index.diff("HEAD"):
         path = diff_item.b_path or diff_item.a_path
         logger.debug("[GIT] Evaluating: %s", path)
- 
+
         # Full path preserving subdirectory structure
         abs_path = os.path.join(CONFIGS_REPO_DIR, path)
- 
+
         try:
             with open(abs_path, errors="replace") as fh:
                 new_text = fh.read()
@@ -241,16 +254,18 @@ def _evaluate_staged_files(repo: Repo) -> tuple[list[str], list[str]]:
             logger.debug("[GIT] %s deleted -> real change", path)
             real_changes.append(path)
             continue
- 
+
         try:
             old_text = repo.git.show(f"HEAD:{path}")
         except GitCommandError:
             logger.debug("[GIT] %s is new (no HEAD) -> real change", path)
             real_changes.append(path)
             continue
- 
+
         if _strip_volatile_lines(new_text) == _strip_volatile_lines(old_text):
-            logger.debug("[GIT] %s - only timestamps changed, restoring from HEAD", path)
+            logger.debug(
+                "[GIT] %s - only timestamps changed, restoring from HEAD", path
+            )
             try:
                 repo.git.checkout("HEAD", "--", path)
                 timestamp_only.append(path)
@@ -260,49 +275,52 @@ def _evaluate_staged_files(repo: Repo) -> tuple[list[str], list[str]]:
         else:
             logger.debug("[GIT] %s - real change detected", path)
             real_changes.append(path)
- 
+
     return real_changes, timestamp_only
- 
- 
+
+
 def _make_initial_commit(repo: Repo, msg: str, has_remote: bool) -> str:
     """Commit everything in a brand-new repo and optionally push."""
     repo.git.add("--all")
     if not repo.untracked_files:
         return "initial: nothing to commit"
- 
+
     repo.git.commit("-m", msg, author=GIT_AUTHOR)
     logger.info("[GIT] Initial commit done")
- 
+
     if has_remote:
         _push_to_remote(repo)
     return "initial commit"
- 
- 
+
+
 # ---------------------------------------------------------------------------
 # RQ jobs
 # ---------------------------------------------------------------------------
- 
+
+
 @job("default")
 def collect_device_config_hostname(hostname: str) -> None:
     """Trigger collection for a single device by hostname."""
     logger.info("[COLLECT] collect_device_config_hostname: %r", hostname)
-    device       = Device.objects.get(name__iexact=hostname)
-    collect_task = Collection.objects.create(device=device, message="device collection task")
-    commit_msg   = f"device_{hostname}_{datetime.now().strftime('%Y_%m_%d_%H_%M_%S')}"
- 
+    device = Device.objects.get(name__iexact=hostname)
+    collect_task = Collection.objects.create(
+        device=device, message="device collection task"
+    )
+    commit_msg = f"device_{hostname}_{datetime.now().strftime('%Y_%m_%d_%H_%M_%S')}"
+
     get_queue("default").enqueue(
         "config_officer.worker.collect_device_config_task",
         collect_task.pk,
         commit_msg,
     )
     logger.info("[COLLECT] Enqueued task id=%d commit=%r", collect_task.pk, commit_msg)
- 
- 
+
+
 @job("default")
 def collect_device_config_task(task_id: int, commit_msg: str = "") -> str:
     """Collect running config from a single device and persist results to NetBox."""
     logger.info("[COLLECT] Task start: task_id=%d commit=%r", task_id, commit_msg)
- 
+
     # Give the DB a moment to flush the Collection record written by the caller
     time.sleep(1)
     try:
@@ -311,93 +329,100 @@ def collect_device_config_task(task_id: int, commit_msg: str = "") -> str:
         logger.warning("[COLLECT] Collection id=%d not found, retrying in 5s", task_id)
         time.sleep(5)
         collect_task = Collection.objects.get(id=task_id)  # propagates if still missing
- 
+
     collect_task.status = CollectStatusChoices.STATUS_RUNNING
     collect_task.save()
- 
+
     if not commit_msg:
         commit_msg = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
- 
+
     def _maybe_enqueue_commit() -> None:
         if get_active_collect_task_count() < 11:
             get_queue("default").enqueue(
                 "config_officer.worker.git_commit_configs_changes", commit_msg
             )
             logger.debug("[COLLECT] Enqueued git commit: %r", commit_msg)
- 
+
     device_nb = collect_task.device
     ip = "unknown"
- 
+
     try:
         platform = (
-            device_nb.platform.name if device_nb.platform is not None else DEFAULT_PLATFORM
+            device_nb.platform.name
+            if device_nb.platform is not None
+            else DEFAULT_PLATFORM
         )
         logger.debug("[COLLECT] Device=%s platform=%r", device_nb.name, platform)
- 
+
         if not device_nb.primary_ip4:
             raise CollectionException(
                 reason=CollectFailChoices.FAIL_CONNECT,
                 message=f"Device {device_nb.name!r} has no Primary IPv4 set in NetBox.",
             )
- 
+
         ip = str(ipaddress.ip_interface(device_nb.primary_ip4).ip)
         logger.debug("[COLLECT] Primary IP: %s", ip)
- 
+
         # Mark in-progress *before* the potentially-long SSH session
         _set_collection_status(device_nb, False)
- 
+
         CollectDeviceData(
             collect_task,
             ip=ip,
             hostname_ipam=str(device_nb.name),
             platform=platform,
         ).collect_information()
- 
+
         logger.info("[COLLECT] collect_information() OK for %s", device_nb.name)
- 
+
     except CollectionException as exc:
-        logger.error("[COLLECT] CollectionException: reason=%r message=%r",
-                     exc.reason, exc.message)
-        collect_task.status       = CollectStatusChoices.STATUS_FAILED
+        logger.error(
+            "[COLLECT] CollectionException: reason=%r message=%r",
+            exc.reason,
+            exc.message,
+        )
+        collect_task.status = CollectStatusChoices.STATUS_FAILED
         collect_task.failed_reason = exc.reason
-        collect_task.message      = exc.message
+        collect_task.message = exc.message
         collect_task.save()
         _maybe_enqueue_commit()
         raise
- 
+
     except Exception as exc:
         logger.exception("[COLLECT] Unexpected error: %s", exc)
-        collect_task.status       = CollectStatusChoices.STATUS_FAILED
+        collect_task.status = CollectStatusChoices.STATUS_FAILED
         collect_task.failed_reason = CollectFailChoices.FAIL_GENERAL
-        collect_task.message      = f"Unknown error: {exc}"
+        collect_task.message = f"Unknown error: {exc}"
         collect_task.save()
         _maybe_enqueue_commit()
         raise
- 
+
     # Success path
     collect_task.status = CollectStatusChoices.STATUS_SUCCEEDED
     collect_task.save()
     _set_collection_status(device_nb, True)
     logger.info("[COLLECT] SUCCESS: %s (%s)", device_nb.name, ip)
- 
+
     try:
         get_queue("default").enqueue(
             "config_officer.worker.check_device_config_compliance",
             device=device_nb,
         )
     except Exception:
-        logger.exception("[COLLECT] Failed to enqueue compliance check for %s", device_nb.name)
- 
+        logger.exception(
+            "[COLLECT] Failed to enqueue compliance check for %s", device_nb.name
+        )
+
     _maybe_enqueue_commit()
     return f"{device_nb.name} {ip} collected"
- 
- 
+
+
 @job("default")
 def git_commit_configs_changes(msg: str) -> str:
     """
     Stage all changed configs and commit only if real config lines changed.
     Volatile timestamp-only changes are filtered out before committing.
- 
+
     Flow:
       1. Open or init the local git repo
       2. Configure remote and do initial pull on first run
@@ -409,143 +434,152 @@ def git_commit_configs_changes(msg: str) -> str:
       6. Push to remote (if enabled)
     """
     logger.info("[GIT] git_commit_configs_changes: msg=%r", msg)
- 
+
     if get_active_collect_task_count() > 0:
         logger.info("[GIT] Active collect tasks running - deferring commit")
         return "deferred: active collect tasks"
- 
+
     try:
-        repo, is_new   = _open_or_init_repo()
+        repo, is_new = _open_or_init_repo()
         _ensure_safe_directory(repo)
-        has_remote     = _ensure_remote(repo)
- 
+        has_remote = _ensure_remote(repo)
+
         if is_new and has_remote:
             _initial_pull(repo)
- 
+
         _ensure_branch(repo)
- 
+
         # Truly empty repo - do an initial commit and exit
         if not repo.head.is_valid():
             return _make_initial_commit(repo, msg, has_remote)
- 
+
         # Stage everything
         repo.git.add("--all")
         staged = repo.index.diff("HEAD")
         logger.debug("[GIT] Files staged vs HEAD: %d", len(staged))
- 
+
         if not staged:
             logger.info("[GIT] Nothing staged - no commit needed")
             return "no changes"
- 
+
         real_changes, timestamp_only = _evaluate_staged_files(repo)
         logger.info(
             "[GIT] Real: %d file(s) | Timestamp-only (skipped): %d file(s)",
-            len(real_changes), len(timestamp_only),
+            len(real_changes),
+            len(timestamp_only),
         )
- 
+
         if not repo.index.diff("HEAD"):
             logger.info("[GIT] No real changes remain - commit skipped")
             return "skipped: only timestamps changed"
- 
+
         commit_result = repo.git.commit("-m", msg, author=GIT_AUTHOR)
         logger.info("[GIT] Committed: %s", commit_result.split("\n")[0])
- 
+
         if has_remote:
             push_status = _push_to_remote(repo)
             return f"committed+{push_status}"
- 
+
         return "committed"
- 
+
     except GitCommandNotFound:
         logger.exception("[GIT] git binary not found - check PATH")
         return "error: git not found"
     except Exception:
         logger.exception("[GIT] Unexpected error in git_commit_configs_changes")
         return "error: see logs"
- 
- 
+
+
 @job("default")
 def check_device_config_compliance(device: Device) -> dict:
     """Check compliance of a device's running config against its service templates."""
     logger.info("[COMPLIANCE] Checking: %s", device.name)
- 
+
     compliance, _ = Compliance.objects.get_or_create(device=device)
-    compliance.status           = ServiceComplianceChoices.STATUS_NON_COMPLIANCE
-    compliance.notes            = "not checked yet"
+    compliance.status = ServiceComplianceChoices.STATUS_NON_COMPLIANCE
+    compliance.notes = "not checked yet"
     compliance.generated_config = "None"
-    compliance.diff             = "None"
+    compliance.diff = "None"
     compliance.save()
     compliance.services = [
-        m.service.name
-        for m in ServiceMapping.objects.filter(device=compliance.device)
+        m.service.name for m in ServiceMapping.objects.filter(device=compliance.device)
     ]
- 
+
     templates = compliance.get_device_templates()
     if not templates:
         logger.info("[COMPLIANCE] %s - no matched templates", device.name)
         compliance.notes = "No matched templates"
         compliance.save()
         return {device: compliance.notes}
- 
-    logger.debug("[COMPLIANCE] %s - matched: %s", device.name, [t.name for t in templates])
- 
+
+    logger.debug(
+        "[COMPLIANCE] %s - matched: %s", device.name, [t.name for t in templates]
+    )
+
     device_config = get_device_config(CONFIGS_PATH, device.name, "running")
     if not device_config:
         logger.warning("[COMPLIANCE] %s - running config file not found", device.name)
         compliance.notes = "running config not found in git"
         compliance.save()
         return {device: compliance.notes}
- 
+
     config_age = get_days_after_update(CONFIGS_PATH, device.name, "running")
     logger.debug("[COMPLIANCE] %s - config age: %d day(s)", device.name, config_age)
- 
+
     if config_age < 0:
         compliance.notes = "unknown error calculating config age"
         compliance.save()
         logger.warning("[COMPLIANCE] %s - could not determine config age", device.name)
         return {device: compliance.notes}
- 
+
     if config_age > 7:
         msg = f"config is stale ({config_age} days)"
         compliance.notes = msg
         compliance.save()
         logger.warning("[COMPLIANCE] %s - %s", device.name, msg)
         return {device: compliance.notes}
- 
+
     generated = compliance.get_generated_config().splitlines()
     logger.debug("[COMPLIANCE] %s - generated: %d lines", device.name, len(generated))
- 
+
     diff = get_config_diff(generated, device_config.splitlines())
- 
+
     if not diff:
         logger.info("[COMPLIANCE] %s -> COMPLIANT", device.name)
         compliance.status = ServiceComplianceChoices.STATUS_COMPLIANCE
-        compliance.diff   = ""
-        compliance.notes  = None
+        compliance.diff = ""
+        compliance.notes = None
     else:
-        logger.info("[COMPLIANCE] %s -> NON-COMPLIANT (%d missing lines)", device.name, len(diff))
+        logger.info(
+            "[COMPLIANCE] %s -> NON-COMPLIANT (%d missing lines)",
+            device.name,
+            len(diff),
+        )
         compliance.status = ServiceComplianceChoices.STATUS_NON_COMPLIANCE
-        compliance.diff   = "\n".join("\n".join(line) for line in diff)
-        compliance.notes  = None
- 
+        compliance.diff = "\n".join("\n".join(line) for line in diff)
+        compliance.notes = None
+
     compliance.save()
     return {device: compliance.status}
- 
- 
+
+
 @job("default")
 def collect_all_devices_configs() -> str:
     """Enqueue config collection for every device in NetBox."""
     logger.info("[COLLECT] collect_all_devices_configs: starting global run")
- 
+
     # Only remove completed/failed records - don't discard tasks still in flight
     Collection.objects.filter(
-        status__in=[CollectStatusChoices.STATUS_SUCCEEDED, CollectStatusChoices.STATUS_FAILED]
+        status__in=[
+            CollectStatusChoices.STATUS_SUCCEEDED,
+            CollectStatusChoices.STATUS_FAILED,
+        ]
     ).delete()
     logger.debug("[COLLECT] Cleared finished Collection records")
- 
-    devices    = list(Device.objects.all())
+
+    devices = list(Device.objects.all())
     commit_msg = f"global_{datetime.now().strftime('%Y_%m_%d_%H_%M_%S')}"
- 
+
     for device in devices:
         collect_task = Collection.objects.create(
             device=device, message=GLOBAL_TASK_INIT_MESSAGE
@@ -556,6 +590,6 @@ def collect_all_devices_configs() -> str:
             commit_msg,
         )
         logger.debug("[COLLECT] Enqueued %s (task_id=%d)", device.name, collect_task.pk)
- 
+
     logger.info("[COLLECT] Enqueued %d tasks, commit=%r", len(devices), commit_msg)
     return f"queued {len(devices)} devices"

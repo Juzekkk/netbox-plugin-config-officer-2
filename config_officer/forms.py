@@ -6,12 +6,9 @@ from utilities.forms.fields import DynamicModelMultipleChoiceField
 
 from tenancy.models import Tenant
 from dcim.models import DeviceRole, DeviceType, Device
-from netbox.forms import NetBoxModelForm
-from utilities.forms.fields import DynamicModelMultipleChoiceField
 
 from .choices import CollectStatusChoices, CollectFailChoices, ServiceComplianceChoices
 from .models import (
-    Collection,
     Template,
     Service,
     ServiceMapping,

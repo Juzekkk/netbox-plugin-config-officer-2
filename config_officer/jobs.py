@@ -18,10 +18,14 @@ class CollectScheduleJob(JobRunner):
             return
 
         devices = list(schedule.devices.all())
-        self.logger.info(f"Schedule '{schedule.name}': enqueuing {len(devices)} device(s)")
+        self.logger.info(
+            f"Schedule '{schedule.name}': enqueuing {len(devices)} device(s)"
+        )
 
         queue = get_queue("default")
-        commit_msg = f"schedule_{schedule.name}_{datetime.now().strftime('%Y_%m_%d_%H_%M_%S')}"
+        commit_msg = (
+            f"schedule_{schedule.name}_{datetime.now().strftime('%Y_%m_%d_%H_%M_%S')}"
+        )
 
         for device in devices:
             collect_task = Collection.objects.create(

@@ -16,7 +16,6 @@ from netbox.plugins import PluginTemplateExtension
 class DeviceConfigButtons(PluginTemplateExtension):
     """Add config-officer action buttons to the Device detail page."""
 
-    # NetBox 4.3+ requires 'models' (list), not 'model' (string)
     models = ["dcim.device"]
 
     def buttons(self):
@@ -39,6 +38,7 @@ class DeviceConfigButtons(PluginTemplateExtension):
         compliance_html = ""
         try:
             from .models import Compliance
+
             if Compliance.objects.filter(device=device).exists():
                 compliance_url = reverse(
                     "plugins:config_officer:compliance",

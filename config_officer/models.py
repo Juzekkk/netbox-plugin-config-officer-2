@@ -19,9 +19,9 @@ from .choices import (
 from .config_manager import generate_templates_config_for_device
 
 
-# ----------------------------
+# --------------------------------------------------------------------------------------------------------------------------
 # Collection
-# ----------------------------
+# --------------------------------------------------------------------------------------------------------------------------
 class Collection(models.Model):
     device = models.ForeignKey(
         to="dcim.Device",
@@ -55,9 +55,11 @@ class Collection(models.Model):
         return str(self.device) if self.device else "n/a"
 
 
-# ----------------------------
+# ---------------------------------------------------------------------------
 # Template
-# ----------------------------
+# ---------------------------------------------------------------------------
+
+
 class Template(models.Model):
     name = models.CharField(max_length=512)
     description = models.CharField(max_length=512, blank=True, null=True)
@@ -76,9 +78,11 @@ class Template(models.Model):
         return Service.objects.filter(service_rules__template=self).distinct()
 
 
-# ----------------------------
+# ---------------------------------------------------------------------------
 # Service
-# ----------------------------
+# ---------------------------------------------------------------------------
+
+
 class Service(models.Model):
     name = models.CharField(max_length=200)
     description = models.CharField(max_length=255, blank=True)
@@ -105,19 +109,17 @@ class Service(models.Model):
         rules = self.service_rules.all()
 
         device_rules = rules.filter(
-            Q(device_role=device.device_role) |
-            Q(device_role__isnull=True)
-        ).filter(
-            Q(device_type=device.device_type) |
-            Q(device_type__isnull=True)
-        )
+            Q(device_role=device.device_role) | Q(device_role__isnull=True)
+        ).filter(Q(device_type=device.device_type) | Q(device_type__isnull=True))
 
         return [r.template for r in device_rules if r.template]
 
 
-# ----------------------------
+# ---------------------------------------------------------------------------
 # ServiceRule (FIXED M2M LOGIC)
-# ----------------------------
+# ---------------------------------------------------------------------------
+
+
 class ServiceRule(models.Model):
     service = models.ForeignKey(
         to="config_officer.Service",
@@ -155,9 +157,11 @@ class ServiceRule(models.Model):
         return role_match and type_match
 
 
-# ----------------------------
+# ---------------------------------------------------------------------------
 # ServiceMapping
-# ----------------------------
+# ---------------------------------------------------------------------------
+
+
 class ServiceMapping(models.Model):
     device = models.ForeignKey("dcim.Device", on_delete=models.CASCADE)
     service = models.ForeignKey(Service, on_delete=models.CASCADE)
@@ -169,9 +173,11 @@ class ServiceMapping(models.Model):
         return f"{self.device}:{self.service}"
 
 
-# ----------------------------
+# ---------------------------------------------------------------------------
 # Compliance
-# ----------------------------
+# ---------------------------------------------------------------------------
+
+
 class Compliance(models.Model):
     device = models.OneToOneField(
         "dcim.Device",
@@ -224,9 +230,11 @@ class Compliance(models.Model):
         return reverse("plugins:config_officer:compliance", args=[self.pk])
 
 
-# ----------------------------
+# ---------------------------------------------------------------------------
 # Collect Schedule
-# ----------------------------
+# ---------------------------------------------------------------------------
+
+
 class CollectSchedule(JobsMixin, NetBoxModel):
     """
     Defines a recurring config-collection job for one or more devices.
@@ -274,6 +282,7 @@ class CollectSchedule(JobsMixin, NetBoxModel):
 
     def _schedule_job(self):
         from .jobs import CollectScheduleJob
+
         if self.enabled:
             CollectScheduleJob.enqueue_once(
                 instance=self,
@@ -284,27 +293,30 @@ class CollectSchedule(JobsMixin, NetBoxModel):
     def get_absolute_url(self):
         return reverse("plugins:config_officer:collectschedule_edit", args=[self.pk])
 
-# ----------------------------
+
+# ---------------------------------------------------------------------------
 # Pure-Python data containers
-# ----------------------------
+# ---------------------------------------------------------------------------
+
+
 @dataclass
 class ParsedInterface:
     """Everything we know about a single interface after parsing CLI output."""
 
-    name:        str
-    ip:          str | None        = None   # primary IP/prefix, e.g. "10.0.0.1/24"
-    secondary:   list[str]         = field(default_factory=list)  # secondary IPs/prefix
-    mac:         str | None        = None   # dotted-hex, e.g. "aabb.ccdd.eeff"
-    description: str | None        = None
-    mtu:         int | None        = None
-    vrf:         str | None        = None
-    dhcp:        bool              = False
-    speed:       str | None        = None   # e.g. "1000Mbps"
-    duplex:      str | None        = None   # "full" | "half"
-    admin_up:    bool | None       = None
-    link_up:     bool | None       = None
-    is_mgmt:     bool              = False
-    lag:         str | None        = None   # normalised lag name, e.g. "port-channel1"
+    name: str
+    ip: str | None = None  # primary IP/prefix, e.g. "10.0.0.1/24"
+    secondary: list[str] = field(default_factory=list)  # secondary IPs/prefix
+    mac: str | None = None  # dotted-hex, e.g. "aabb.ccdd.eeff"
+    description: str | None = None
+    mtu: int | None = None
+    vrf: str | None = None
+    dhcp: bool = False
+    speed: str | None = None  # e.g. "1000Mbps"
+    duplex: str | None = None  # "full" | "half"
+    admin_up: bool | None = None
+    link_up: bool | None = None
+    is_mgmt: bool = False
+    lag: str | None = None  # normalised lag name, e.g. "port-channel1"
 
     def __str__(self) -> str:
         return self.name
@@ -315,6 +327,6 @@ class ParsedDevice:
     """Version / identity information parsed from 'show version'."""
 
     hostname: str = ""
-    version:  str = ""
-    pid:      str = ""   # product-ID / hardware model
-    serial:   str = ""
+    version: str = ""
+    pid: str = ""  # product-ID / hardware model
+    serial: str = ""

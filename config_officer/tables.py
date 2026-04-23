@@ -7,7 +7,9 @@ from django_tables2.utils import Accessor
 from .models import Collection, Template, Service, ServiceRule, CollectSchedule
 from dcim.models import Device
 
+# ---------------------------------------------------------------------------
 # Template columns (raw HTML rendered inside TemplateColumn)
+# ---------------------------------------------------------------------------
 
 TEMPLATE_LINK = """
 <a href="{% url 'plugins:config_officer:template' pk=record.pk %}">
@@ -139,18 +141,24 @@ COLLECT_SCHEDULE = """
 """
 
 
+# ---------------------------------------------------------------------------
 # Collection
 #
 # MUST use plain tables.Table, NOT NetBoxTable.
 # NetBoxTable auto-generates links to '<model>_edit' and '<model>_delete' URL
 # names via its ActionsColumn. Collection has no standard NetBox CRUD views,
 # so those URL names don't exist -> NoReverseMatch crash.
+# ---------------------------------------------------------------------------
+
 
 class CollectionTable(tables.Table):
     pk = ToggleColumn()
-    device = tables.Column(verbose_name="Hostname", linkify=lambda record: (
-        record.device.get_absolute_url() if record.device else None
-    ))
+    device = tables.Column(
+        verbose_name="Hostname",
+        linkify=lambda record: (
+            record.device.get_absolute_url() if record.device else None
+        ),
+    )
     status = tables.Column(verbose_name="Status")
     failed_reason = tables.Column(verbose_name="Failed Reason")
     message = tables.Column(verbose_name="Message")
@@ -162,8 +170,10 @@ class CollectionTable(tables.Table):
         empty_text = "No collection tasks found."
 
 
+# ---------------------------------------------------------------------------
 # Template
-# Plain Table - Template has custom plugin URLs, not standard NetBox model URLs.
+# ---------------------------------------------------------------------------
+
 
 class TemplateListTable(tables.Table):
     pk = ToggleColumn()
@@ -196,7 +206,10 @@ class TemplateListTable(tables.Table):
         empty_text = "No templates found."
 
 
+# ---------------------------------------------------------------------------
 # Service
+# ---------------------------------------------------------------------------
+
 
 class ServiceListTable(tables.Table):
     pk = ToggleColumn()
@@ -219,14 +232,25 @@ class ServiceListTable(tables.Table):
         empty_text = "No services found."
 
 
+# ---------------------------------------------------------------------------
 # ServiceRule
+# ---------------------------------------------------------------------------
+
 
 class ServiceRuleListTable(tables.Table):
     pk = ToggleColumn()
-    service = tables.TemplateColumn(template_code=RULE_SERVICE_LINK, verbose_name="Service")
-    device_role = tables.TemplateColumn(template_code=DEVICE_ROLE, verbose_name="Device Role")
-    device_type = tables.TemplateColumn(template_code=DEVICE_TYPE, verbose_name="Device Type")
-    template = tables.TemplateColumn(template_code=RULE_TEMPLATE_LINK, verbose_name="Template")
+    service = tables.TemplateColumn(
+        template_code=RULE_SERVICE_LINK, verbose_name="Service"
+    )
+    device_role = tables.TemplateColumn(
+        template_code=DEVICE_ROLE, verbose_name="Device Role"
+    )
+    device_type = tables.TemplateColumn(
+        template_code=DEVICE_TYPE, verbose_name="Device Type"
+    )
+    template = tables.TemplateColumn(
+        template_code=RULE_TEMPLATE_LINK, verbose_name="Template"
+    )
     description = tables.Column(default="—")
     actions = tables.TemplateColumn(
         template_code=RULE_ACTIONS,
@@ -236,15 +260,26 @@ class ServiceRuleListTable(tables.Table):
 
     class Meta:
         model = ServiceRule
-        fields = ("pk", "service", "device_role", "device_type", "template", "description", "actions")
+        fields = (
+            "pk",
+            "service",
+            "device_role",
+            "device_type",
+            "template",
+            "description",
+            "actions",
+        )
         attrs = {"class": "table table-hover table-headings"}
         empty_text = "No service rules found."
 
 
+# ---------------------------------------------------------------------------
 # ServiceMapping (Device list with compliance columns)
 #
 # Uses NetBoxTable because it's based on the standard Device model which DOES
 # have all standard NetBox CRUD URLs - NetBoxTable's ActionsColumn works here.
+# ---------------------------------------------------------------------------
+
 
 class ServiceMappingListTable(NetBoxTable):
     pk = ToggleColumn()
@@ -279,8 +314,33 @@ class ServiceMappingListTable(NetBoxTable):
 
     class Meta(NetBoxTable.Meta):
         model = Device
-        fields = ("pk", "name", "service", "tenant", "device_role", "device_type", "tags", "status", "notes")
-        default_columns = ("pk", "name", "service", "tenant", "device_role", "device_type", "tags", "status", "notes")
+        fields = (
+            "pk",
+            "name",
+            "service",
+            "tenant",
+            "device_role",
+            "device_type",
+            "tags",
+            "status",
+            "notes",
+        )
+        default_columns = (
+            "pk",
+            "name",
+            "service",
+            "tenant",
+            "device_role",
+            "device_type",
+            "tags",
+            "status",
+            "notes",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Collection Schedules
+# ---------------------------------------------------------------------------
 
 
 class CollectScheduleTable(NetBoxTable):
@@ -301,16 +361,16 @@ class CollectScheduleTable(NetBoxTable):
         orderable=False,
         verbose_name="",
     )
- 
+
     class Meta:
         model = CollectSchedule
         fields = ("name", "devices", "interval_hours", "next_run", "enabled", "actions")
         attrs = {"class": "table table-hover table-headings"}
- 
+
     def render_devices(self, record):
         count = record.devices.count()
         return f"{count} device{'s' if count != 1 else ''}"
- 
+
     def render_interval_hours(self, value):
         if value == 1:
             return "Every hour"

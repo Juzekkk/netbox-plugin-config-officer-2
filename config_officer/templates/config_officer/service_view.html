@@ -44,7 +44,7 @@
     <div class="card-header d-flex justify-content-between align-items-center">
         <strong>Rules</strong>
         <a href="{% url 'plugins:config_officer:service_rule_add' %}?service={{ service.pk }}&return_url={{ service.get_absolute_url }}"
-           class="btn btn-primary btn-sm">
+            class="btn btn-primary btn-sm">
             <i class="mdi mdi-plus-thick"></i> Add a rule
         </a>
     </div>
@@ -62,56 +62,56 @@
                 </tr>
             </thead>
             <tbody>
-            {% for rule in service_rules %}
+                {% for rule in service_rules %}
                 <tr>
                     <td>
                         {% if rule.device_role.all %}
-                            <ul class="list-unstyled mb-0">
+                        <ul class="list-unstyled mb-0">
                             {% for d_role in rule.device_role.all %}
-                                <li>{{ d_role }}</li>
+                            <li>{{ d_role }}</li>
                             {% endfor %}
-                            </ul>
+                        </ul>
                         {% else %}
-                            <span class="text-muted">any</span>
+                        <span class="text-muted">any</span>
                         {% endif %}
                     </td>
                     <td>
                         {% if rule.device_type.all %}
-                            <ul class="list-unstyled mb-0">
+                        <ul class="list-unstyled mb-0">
                             {% for d_type in rule.device_type.all %}
-                                <li><a href="{{ d_type.get_absolute_url }}">{{ d_type }}</a></li>
+                            <li><a href="{{ d_type.get_absolute_url }}">{{ d_type }}</a></li>
                             {% endfor %}
-                            </ul>
+                        </ul>
                         {% else %}
-                            <span class="text-muted">any</span>
+                        <span class="text-muted">any</span>
                         {% endif %}
                     </td>
                     <td>
                         {% if rule.template %}
-                            <a href="{{ rule.template.get_absolute_url }}">{{ rule.template }}</a>
+                        <a href="{{ rule.template.get_absolute_url }}">{{ rule.template }}</a>
                         {% else %}
-                            <span class="text-muted">—</span>
+                        <span class="text-muted">—</span>
                         {% endif %}
                     </td>
                     <td>{{ rule.description|default:"—" }}</td>
                     <td class="text-end text-nowrap">
                         <a href="{% url 'plugins:config_officer:service_rule_edit' pk=rule.pk %}?return_url={{ service.get_absolute_url }}"
-                           class="btn btn-warning btn-sm" title="Edit rule">
+                            class="btn btn-warning btn-sm" title="Edit rule">
                             <i class="mdi mdi-pencil"></i>
                         </a>
                         <a href="{% url 'plugins:config_officer:service_rule_delete' pk=rule.pk %}?return_url={{ service.get_absolute_url }}"
-                           class="btn btn-danger btn-sm" title="Delete rule">
+                            class="btn btn-danger btn-sm" title="Delete rule">
                             <i class="mdi mdi-trash-can"></i>
                         </a>
                     </td>
                 </tr>
-            {% endfor %}
+                {% endfor %}
             </tbody>
         </table>
     </div>
     <div class="card-footer text-end">
         <a href="{% url 'plugins:config_officer:service_rule_add' %}?service={{ service.pk }}&return_url={{ service.get_absolute_url }}"
-           class="btn btn-primary btn-sm">
+            class="btn btn-primary btn-sm">
             <i class="mdi mdi-plus-thick"></i> Add a rule
         </a>
     </div>
