@@ -1,4 +1,4 @@
-"""Tables for config_officer plugin – NetBox 4.x compatible."""
+"""Tables for config_officer plugin - NetBox 4.x compatible."""
 
 import django_tables2 as tables
 from netbox.tables import NetBoxTable, ToggleColumn, TagColumn
@@ -154,7 +154,7 @@ class CollectionTable(tables.Table):
 
 
 # Template
-# Plain Table – Template has custom plugin URLs, not standard NetBox model URLs.
+# Plain Table - Template has custom plugin URLs, not standard NetBox model URLs.
 
 class TemplateListTable(tables.Table):
     pk = ToggleColumn()
@@ -235,7 +235,7 @@ class ServiceRuleListTable(tables.Table):
 # ServiceMapping (Device list with compliance columns)
 #
 # Uses NetBoxTable because it's based on the standard Device model which DOES
-# have all standard NetBox CRUD URLs – NetBoxTable's ActionsColumn works here.
+# have all standard NetBox CRUD URLs - NetBoxTable's ActionsColumn works here.
 
 class ServiceMappingListTable(NetBoxTable):
     pk = ToggleColumn()

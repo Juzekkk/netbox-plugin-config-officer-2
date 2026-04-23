@@ -1,14 +1,14 @@
 {% extends 'base/layout.html' %}
 {% load helpers %}
 
-{% block title %}{{ record.device }} – Compliance{% endblock %}
+{% block title %}{{ record.device }} - Compliance{% endblock %}
 
 {% block content %}
 
 {% include 'config_officer/navi_panel.html' %}
 
 <div class="d-flex justify-content-between align-items-center mb-3">
-    <h1 class="h3 mb-0">{{ record.device }} – compliance status</h1>
+    <h1 class="h3 mb-0">{{ record.device }} - compliance status</h1>
     <a href="{% url 'dcim:device' pk=record.device.pk %}" class="btn btn-outline-secondary btn-sm">
         <i class="mdi mdi-server"></i> Back to device
     </a>

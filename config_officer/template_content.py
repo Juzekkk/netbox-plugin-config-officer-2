@@ -1,4 +1,4 @@
-"""Plugin template extensions – injects buttons into the Device detail page.
+"""Plugin template extensions - injects buttons into the Device detail page.
 
 NetBox looks for this file as 'template_content.py' by default
 (DEFAULT_RESOURCE_PATHS['template_extensions'] = 'template_content.template_extensions').

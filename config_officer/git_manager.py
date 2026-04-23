@@ -1,136 +1,200 @@
 """Manage data in local git repository."""
 
+from __future__ import annotations
+
 import os
 import time
 from datetime import datetime
-from git import Repo, NULL_TREE
+
+from git import NULL_TREE, GitCommandError, InvalidGitRepositoryError, Repo
+from git.objects.commit import Commit
+
 import logging
 
 logger = logging.getLogger(__name__)
 
 
-def get_device_config(directory, hostname, config_type="running"):
+def _ensure_safe_directory(repo: Repo) -> None:
+    """
+    Mark the repo path as safe.directory in the global git config for the
+    current process user.  Required when the directory is owned by a different
+    uid (e.g. written by the worker container, read by the netbox web container).
+    """
+    repo_path = os.path.abspath(repo.working_tree_dir)
     try:
-        with open(f"{directory}/{hostname}_{config_type}.txt", "r") as file:
-            return file.read()
+        existing = repo.git.config("--global", "--get-all", "safe.directory").splitlines()
+    except GitCommandError:
+        existing = []
+
+    if repo_path not in existing:
+        try:
+            repo.git.config("--global", "--add", "safe.directory", repo_path)
+            logger.debug("[GIT] Marked safe.directory: %s", repo_path)
+        except Exception:
+            logger.exception("[GIT] Failed to set safe.directory for %s", repo_path)
+
+
+# File-system helpers (no git required)
+
+def get_device_config(directory: str, hostname: str, config_type: str = "running") -> str | None:
+    """Return the text of a saved device config file, or None if absent."""
+    path = os.path.join(directory, f"{hostname}_{config_type}.txt")
+    try:
+        with open(path) as fh:
+            return fh.read()
     except FileNotFoundError:
         return None
 
 
-def get_days_after_update(directory, hostname, config_type="running"):
+def get_days_after_update(directory: str, hostname: str, config_type: str = "running") -> int:
+    """
+    Return how many days ago the config file was last written.
+    Returns -1 on any error (file missing, permission denied, …).
+    """
+    path = os.path.join(directory, f"{hostname}_{config_type}.txt")
     try:
-        create_time = os.stat(f"{directory}/{hostname}_{config_type}.txt").st_ctime
-        return round((time.time() - create_time) / 86400)
-    except:
+        mtime = os.stat(path).st_mtime   # modification time is more reliable than ctime
+        return round((time.time() - mtime) / 86400)
+    except OSError:
         return -1
 
 
-def get_config_update_date(directory, hostname, config_type="running"):
+def get_config_update_date(directory: str, hostname: str, config_type: str = "running") -> str:
+    """Return a human-readable last-modified date for the config file."""
+    path = os.path.join(directory, f"{hostname}_{config_type}.txt")
     try:
-        create_time = os.stat(f"{directory}/{hostname}_{config_type}.txt").st_ctime
-        return datetime.fromtimestamp(create_time).strftime("%Y-%m-%d %H:%M")
-    except:
+        mtime = os.stat(path).st_mtime
+        return datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M")
+    except OSError:
         return "unknown"
 
 
-def get_file_repo_state(repository_path, filename):
-    repo_state = {
-        "commits_count": 0,
-        "commits": []
-    }
+# Git helpers
+
+def _diff_for_commit(commit: Commit, filename: str) -> str:
+    """
+    Return the unified-diff text for *filename* in *commit*.
+
+    For root commits (no parent) the diff is computed against NULL_TREE.
+    For ordinary commits it is computed against the first parent.
+    """
+    parent = commit.parents[0] if commit.parents else None
+    base   = parent if parent is not None else NULL_TREE
+
+    diff_index = base.diff(commit, create_patch=True)
+
+    for diff in diff_index:
+        a_path = diff.a_path or ""
+        b_path = diff.b_path or ""
+        if a_path.endswith(filename) or b_path.endswith(filename):
+            if not diff.diff:
+                logger.warning("[GIT] Empty patch for %s in %s", filename, commit.hexsha[:8])
+                return ""
+            return diff.diff.decode("utf-8", errors="ignore")
+
+    logger.warning("[GIT] File %s not found in diff of %s", filename, commit.hexsha[:8])
+    return ""
+
+
+def get_file_repo_state(repository_path: str, filename: str) -> dict:
+    """
+    Return the full commit history and per-commit diffs for *filename*
+    inside the git repository rooted at *repository_path*.
+
+    Return value schema::
+
+        {
+            "commits_count": int,
+            "commits": [
+                {
+                    "hash": str,
+                    "msg":  str,
+                    "diff": str,
+                    "date": datetime,
+                },
+                ...
+            ],
+            # present only on success and when commits exist:
+            "first_commit_date": str,
+            "last_commit_date":  str,
+            # present only on error:
+            "error":   str,
+            "comment": str,
+        }
+    """
+    repo_state: dict = {"commits_count": 0, "commits": []}
 
     try:
-        repo = Repo(repository_path)
+        try:
+            repo = Repo(repository_path)
+        except InvalidGitRepositoryError:
+            logger.error("[GIT] Not a git repository: %s", repository_path)
+            repo_state["error"] = f"not a git repository: {repository_path}"
+            return repo_state
 
-        logger.debug(f"[GIT] Repo loaded: {repository_path}")
-        logger.debug(f"[GIT] HEAD: {repo.head.commit.hexsha}")
-        logger.debug(f"[GIT] Active branch: {repo.active_branch.name}")
+        # Ensure this process trusts the repo regardless of directory ownership.
+        # The worker container sets safe.directory for itself, but the netbox
+        # web container is a separate process (different uid) and needs it too.
+        _ensure_safe_directory(repo)
+
+        head_sha = repo.head.commit.hexsha[:8] if repo.head.is_valid() else "none"
+        branch   = repo.active_branch.name if not repo.head.is_detached else "detached"
+        logger.debug("[GIT] Repo loaded: %s  HEAD=%s  branch=%s",
+                     repository_path, head_sha, branch)
+
+        if not repo.head.is_valid():
+            logger.info("[GIT] Repo has no commits yet")
+            repo_state["comment"] = "repository has no commits yet"
+            return repo_state
 
         commits = list(repo.iter_commits(paths=filename))
         commits.reverse()
 
         repo_state["commits_count"] = len(commits)
-
-        logger.debug(f"[GIT] Found commits: {len(commits)} for {filename}")
+        logger.debug("[GIT] %d commit(s) found for %s", len(commits), filename)
 
         if not commits:
-            repo_state["comment"] = f"no commits changes for {filename}"
+            repo_state["comment"] = f"no commits for {filename}"
             return repo_state
 
         repo_state["first_commit_date"] = commits[0].committed_datetime.strftime("%d %b %Y %H:%M")
-        repo_state["last_commit_date"] = commits[-1].committed_datetime.strftime("%d %b %Y %H:%M")
+        repo_state["last_commit_date"]  = commits[-1].committed_datetime.strftime("%d %b %Y %H:%M")
 
         for i, commit in enumerate(commits):
-            parent = commit.parents[0] if commit.parents else None
-
-            logger.debug("====================================")
-            logger.debug(f"[GIT] COMMIT [{i+1}/{len(commits)}]: {commit.hexsha}")
-            logger.debug(f"[GIT] PARENT: {parent.hexsha if parent else 'NONE (ROOT)'}")
-
-            if parent:
-                logger.debug(f"[GIT] PARENT TREE: {parent.tree.hexsha}")
-            logger.debug(f"[GIT] COMMIT TREE: {commit.tree.hexsha}")
-
-            diff_text = ""
-
+            logger.debug("[GIT] Processing commit [%d/%d] %s", i + 1, len(commits), commit.hexsha[:8])
             try:
-                if parent:
-                    diff_index = parent.diff(commit, create_patch=True)
-                    logger.debug(f"[GIT] DIFF MODE: parent -> commit ({commit.hexsha})")
-                else:
-                    diff_index = parent.diff(commit, create_patch=True)
-                    logger.debug(f"[GIT] DIFF MODE: NULL_TREE -> commit ({commit.hexsha})")
-
-                logger.debug(f"[GIT] RAW DIFF COUNT: {len(diff_index)}")
-
-                for idx, diff in enumerate(diff_index):
-                    a_path = diff.a_path or ""
-                    b_path = diff.b_path or ""
-
-                    logger.debug(
-                        f"[GIT] DIFF[{idx}] "
-                        f"a_path={a_path} | b_path={b_path} | "
-                        f"change_type={diff.change_type}"
-                    )
-
-                    logger.debug(f"[GIT] filename match check: {filename}")
-
-                    if (
-                        a_path.endswith(filename)
-                        or b_path.endswith(filename)
-                    ):
-                        if diff.diff:
-                            try:
-                                decoded = diff.diff.decode("utf-8", errors="ignore")
-                                diff_text += decoded
-
-                                logger.debug(
-                                    f"[GIT] DIFF[{idx}] MATCHED FILE, SIZE={len(decoded)} chars"
-                                )
-                            except Exception as e:
-                                logger.exception(f"[GIT] decode error in commit {commit.hexsha}")
-                                diff_text += str(diff.diff)
-                        else:
-                            logger.warning(f"[GIT] DIFF[{idx}] EMPTY diff.diff")
-
-                if not diff_text:
-                    logger.warning(f"[GIT] Empty FINAL diff for commit {commit.hexsha}")
-
-            except Exception as e:
-                logger.exception(f"[GIT] Diff error for commit {commit.hexsha}")
-                diff_text = f"diff error: {e}"
+                diff_text = _diff_for_commit(commit, filename)
+            except Exception:
+                logger.exception("[GIT] Diff error for commit %s", commit.hexsha[:8])
+                diff_text = f"diff error: see logs"
 
             repo_state["commits"].append({
                 "hash": commit.hexsha,
-                "msg": commit.message.strip(),
+                "msg":  commit.message.strip(),
                 "diff": diff_text,
                 "date": commit.committed_datetime,
             })
 
-        logger.debug("[GIT] Repo state build complete")
+        logger.debug("[GIT] Repo state build complete (%d commits)", len(commits))
 
-    except Exception as e:
+    except Exception:
         logger.exception("[GIT] Fatal error in get_file_repo_state")
-        repo_state["error"] = str(e)
+        repo_state["error"] = "unexpected error: see logs"
 
     return repo_state
+
+
+def get_device_file_repo_state(
+    repo_dir: str,
+    configs_subpath: str,
+    hostname: str,
+    config_type: str = "running",
+) -> dict:
+    """
+    Convenience wrapper around :func:`get_file_repo_state` for the standard
+    config_officer file layout::
+
+        <repo_dir>/<configs_subpath>/<hostname>_<config_type>.txt
+    """
+    relative_path = os.path.join(configs_subpath, f"{hostname}_{config_type}.txt")
+    return get_file_repo_state(repo_dir, relative_path)

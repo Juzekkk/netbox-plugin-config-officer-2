@@ -1,5 +1,6 @@
 """Models for config_officer plugin."""
 
+from dataclasses import dataclass, field
 from django.db import models
 from django.urls import reverse
 from django.db.models import Q
@@ -216,3 +217,39 @@ class Compliance(models.Model):
 
     def get_absolute_url(self):
         return reverse("plugins:config_officer:compliance", args=[self.pk])
+
+
+# ----------------------------
+# Pure-Python data containers
+# ----------------------------
+@dataclass
+class ParsedInterface:
+    """Everything we know about a single interface after parsing CLI output."""
+
+    name:        str
+    ip:          str | None        = None   # primary IP/prefix, e.g. "10.0.0.1/24"
+    secondary:   list[str]         = field(default_factory=list)  # secondary IPs/prefix
+    mac:         str | None        = None   # dotted-hex, e.g. "aabb.ccdd.eeff"
+    description: str | None        = None
+    mtu:         int | None        = None
+    vrf:         str | None        = None
+    dhcp:        bool              = False
+    speed:       str | None        = None   # e.g. "1000Mbps"
+    duplex:      str | None        = None   # "full" | "half"
+    admin_up:    bool | None       = None
+    link_up:     bool | None       = None
+    is_mgmt:     bool              = False
+    lag:         str | None        = None   # normalised lag name, e.g. "port-channel1"
+
+    def __str__(self) -> str:
+        return self.name
+
+
+@dataclass
+class ParsedDevice:
+    """Version / identity information parsed from 'show version'."""
+
+    hostname: str = ""
+    version:  str = ""
+    pid:      str = ""   # product-ID / hardware model
+    serial:   str = ""

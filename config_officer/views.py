@@ -1,5 +1,3 @@
-"""Views for config_officer plugin – NetBox 4.x compatible."""
-
 from copy import deepcopy
 from datetime import datetime
 import io
@@ -7,7 +5,6 @@ import os
 
 import django_tables2 as tables_lib
 import pytz
-from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import PermissionRequiredMixin
 from django.db.models import Q
@@ -21,12 +18,12 @@ from netbox.views.generic import (
     ObjectListView,
     ObjectEditView,
     ObjectDeleteView,
-    BulkDeleteView,
 )
 
 from dcim.models import Device
 
 from .choices import CollectStatusChoices
+from .config import CONFIGS_PATH, CONFIGS_REPO_DIR, CONFIGS_SUBPATH, TIME_ZONE
 from .filters import CollectionFilter, ServiceMappingFilter
 from .forms import (
     CollectionFilterForm,
@@ -37,7 +34,11 @@ from .forms import (
     ServiceMappingCreateForm,
     ServiceMappingFilterForm,
 )
-from .git_manager import get_device_config, get_config_update_date, get_file_repo_state
+from .git_manager import (
+    get_device_config,
+    get_config_update_date,
+    get_device_file_repo_state,
+)
 from .models import Collection, Template, Service, ServiceRule, ServiceMapping, Compliance
 from .tables import (
     CollectionTable,
@@ -47,17 +48,10 @@ from .tables import (
     ServiceMappingListTable,
 )
 
-PLUGIN_SETTINGS = settings.PLUGINS_CONFIG.get("config_officer", dict())
-NETBOX_DEVICES_CONFIGS_REPO_DIR = PLUGIN_SETTINGS.get("NETBOX_DEVICES_CONFIGS_REPO_DIR", "/device_configs")
-NETBOX_DEVICES_CONFIGS_SUBPATH = PLUGIN_SETTINGS.get('NETBOX_DEVICES_CONFIGS_SUBPATH', 'netbox')
-NETBOX_DEVICES_CONFIGS_PATH = os.path.join(NETBOX_DEVICES_CONFIGS_REPO_DIR, NETBOX_DEVICES_CONFIGS_SUBPATH)
-TIME_ZONE = os.environ.get("TIME_ZONE", "UTC")
 
-
-# Helper: simple paginated list view for plugin models that do NOT inherit
-# from NetBox standard models (Collection, Template, Service, ServiceRule).
-# Using ObjectListView would force NetBoxTable which auto-generates broken
-# action URLs for non-standard models.
+# ---------------------------------------------------------------------------
+# Base helpers
+# ---------------------------------------------------------------------------
 
 class PluginTableView(PermissionRequiredMixin, View):
     """Base view: renders a django-tables2 table with an optional filter form."""
@@ -68,7 +62,7 @@ class PluginTableView(PermissionRequiredMixin, View):
     filterset_form_class = None
     template_name = "config_officer/generic_list.html"
     page_title = ""
-    add_url = None        # name of 'add' URL for the "+ Add" button
+    add_url = None
 
     def get_queryset(self, request):
         return self.queryset
@@ -76,7 +70,6 @@ class PluginTableView(PermissionRequiredMixin, View):
     def get(self, request):
         qs = self.get_queryset(request)
 
-        # Apply filterset if present
         filterset = None
         filter_form = None
         if self.filterset_class:
@@ -96,18 +89,18 @@ class PluginTableView(PermissionRequiredMixin, View):
         })
 
 
-
+# ---------------------------------------------------------------------------
 # Global collection
+# ---------------------------------------------------------------------------
 
 def global_collection():
-    devices_collecting = Collection.objects.filter(
+    in_progress = Collection.objects.filter(
         Q(status__iexact=CollectStatusChoices.STATUS_PENDING)
         | Q(status__iexact=CollectStatusChoices.STATUS_RUNNING)
-    )
-    count = devices_collecting.count()
-    if count > 0:
+    ).count()
+    if in_progress:
         return (
-            f"Global collection not possible now. There are {count} devices in "
+            f"Global collection not possible now. There are {in_progress} devices in "
             f"{CollectStatusChoices.STATUS_PENDING} or {CollectStatusChoices.STATUS_RUNNING} state."
         )
     get_queue("default").enqueue("config_officer.worker.collect_all_devices_configs")
@@ -116,12 +109,16 @@ def global_collection():
 
 class GlobalCollectionDeviceConfigs(View):
     def get(self, request):
-        message = global_collection()
-        return render(request, "config_officer/collection_message.html", {"message": message})
+        return render(
+            request,
+            "config_officer/collection_message.html",
+            {"message": global_collection()},
+        )
 
 
-
+# ---------------------------------------------------------------------------
 # Collection status
+# ---------------------------------------------------------------------------
 
 class CollectStatusListView(PluginTableView):
     queryset = Collection.objects.all().order_by("-id")
@@ -133,7 +130,6 @@ class CollectStatusListView(PluginTableView):
 
 
 class CollectTaskDelete(PermissionRequiredMixin, View):
-    """Simple single-object delete for Collection records (via ?pk= param)."""
     permission_required = ("dcim.view_device",)
 
     def get(self, request):
@@ -141,11 +137,6 @@ class CollectTaskDelete(PermissionRequiredMixin, View):
         if pk:
             Collection.objects.filter(pk=pk).delete()
             messages.success(request, "Collection task deleted.")
-        else:
-            # Bulk delete from POST (checkbox selection)
-            pk_list = request.POST.getlist("pk")
-            Collection.objects.filter(pk__in=pk_list).delete()
-            messages.success(request, f"{len(pk_list)} task(s) deleted.")
         return redirect(reverse("plugins:config_officer:collection_status"))
 
     def post(self, request):
@@ -158,8 +149,11 @@ class CollectTaskDelete(PermissionRequiredMixin, View):
 def collect_device_config(request, slug):
     """Trigger single-device collection via RQ."""
     if not Device.objects.filter(name__iexact=slug).exists():
-        message = f"Device '{slug}' not found."
-        return render(request, "config_officer/collection_message.html", {"message": message})
+        return render(
+            request,
+            "config_officer/collection_message.html",
+            {"message": f"Device '{slug}' not found."},
+        )
     try:
         get_queue("default").enqueue(
             "config_officer.worker.collect_device_config_hostname", hostname=slug
@@ -169,8 +163,9 @@ def collect_device_config(request, slug):
         return render(request, "config_officer/collection_message.html", {"message": str(exc)})
 
 
-
+# ---------------------------------------------------------------------------
 # Template views
+# ---------------------------------------------------------------------------
 
 class TemplateListView(PluginTableView):
     queryset = Template.objects.all()
@@ -205,8 +200,9 @@ class TemplateDeleteView(PermissionRequiredMixin, ObjectDeleteView):
     default_return_url = "plugins:config_officer:template_list"
 
 
-
+# ---------------------------------------------------------------------------
 # Service views
+# ---------------------------------------------------------------------------
 
 class ServiceListView(PluginTableView):
     queryset = Service.objects.all()
@@ -246,8 +242,9 @@ class ServiceDeleteView(PermissionRequiredMixin, ObjectDeleteView):
     default_return_url = "plugins:config_officer:service_list"
 
 
-
+# ---------------------------------------------------------------------------
 # ServiceRule views
+# ---------------------------------------------------------------------------
 
 class ServiceRuleListView(PluginTableView):
     queryset = ServiceRule.objects.all().order_by("service")
@@ -274,30 +271,29 @@ class ServiceRuleDeleteView(PermissionRequiredMixin, ObjectDeleteView):
     default_return_url = "plugins:config_officer:service_rules_list"
 
 
-
+# ---------------------------------------------------------------------------
 # Compliance view
+# ---------------------------------------------------------------------------
 
 class ComplianceView(PermissionRequiredMixin, View):
     permission_required = ("dcim.view_device",)
 
     def get(self, request, device):
         record = get_object_or_404(Compliance, device=device)
-        device_config = get_device_config(NETBOX_DEVICES_CONFIGS_PATH, record.device.name, "running")
-        config_update_date = get_config_update_date(NETBOX_DEVICES_CONFIGS_PATH, record.device.name, "running")
         return render(
             request,
             "config_officer/compliance_view.html",
             {
                 "record": record,
-                "device_config": device_config,
-                "config_update_date": config_update_date,
+                "device_config": get_device_config(CONFIGS_PATH, record.device.name, "running"),
+                "config_update_date": get_config_update_date(CONFIGS_PATH, record.device.name, "running"),
             },
         )
 
 
-
+# ---------------------------------------------------------------------------
 # ServiceMapping views
-# Device is a standard NetBox model so ObjectListView + NetBoxTable work fine.
+# ---------------------------------------------------------------------------
 
 class ServiceMappingListView(PermissionRequiredMixin, ObjectListView):
     permission_required = ("dcim.view_device",)
@@ -342,7 +338,10 @@ class ServiceMappingListView(PermissionRequiredMixin, ObjectListView):
 
         workbook = xlsxwriter.Workbook(output, {"remove_timezone": True, "default_date_format": "yyyy-mm-dd"})
         worksheet = workbook.add_worksheet("compliance")
-        worksheet.add_table(0, 0, Device.objects.count(), len(header) - 1, {"columns": header, "data": data})
+        worksheet.add_table(
+            0, 0, Device.objects.count(), len(header) - 1,
+            {"columns": header, "data": data},
+        )
         for i, w in enumerate(width):
             worksheet.set_column(i, i, w)
         workbook.close()
@@ -350,34 +349,37 @@ class ServiceMappingListView(PermissionRequiredMixin, ObjectListView):
         return output
 
     def post(self, request, *args, **kwargs):
-        if "_create" in request.POST:
-            form = ServiceMappingCreateForm(request.POST)
-            if form.is_valid():
-                data = deepcopy(form.cleaned_data)
-                services = data["service"]
-                if not services:
-                    messages.error(request, "No services selected.")
-                else:
-                    Compliance.objects.filter(device__in=data["pk"]).delete()
-                    for device in data["pk"]:
-                        ServiceMapping.objects.filter(device=device).delete()
-                        for service in services:
-                            ServiceMapping.objects.update_or_create(device=device, service=service)
-                        get_queue("default").enqueue(
-                            "config_officer.worker.check_device_config_compliance", device=device
-                        )
-                    messages.success(request, f"{list(services)} attached to {len(data['pk'])} device(s).")
-            else:
-                messages.error(request, "Form is not valid.")
+        if "_create" not in request.POST:
+            return redirect(request.get_full_path())
+
+        form = ServiceMappingCreateForm(request.POST)
+        if not form.is_valid():
+            messages.error(request, "Form is not valid.")
+            return redirect(request.get_full_path())
+
+        data     = deepcopy(form.cleaned_data)
+        services = data["service"]
+        if not services:
+            messages.error(request, "No services selected.")
+            return redirect(request.get_full_path())
+
+        Compliance.objects.filter(device__in=data["pk"]).delete()
+        for device in data["pk"]:
+            ServiceMapping.objects.filter(device=device).delete()
+            for service in services:
+                ServiceMapping.objects.update_or_create(device=device, service=service)
+            get_queue("default").enqueue(
+                "config_officer.worker.check_device_config_compliance", device=device
+            )
+        messages.success(request, f"{list(services)} attached to {len(data['pk'])} device(s).")
         return redirect(request.get_full_path())
 
     def get(self, request, *args, **kwargs):
         if "to_excel" in request.GET:
             output = self._export_to_excel()
             if output:
-                filename = (
-                    f"compliance_{datetime.now().astimezone(pytz.timezone(TIME_ZONE)).strftime('%Y%m%d_%H%M%S')}.xlsx"
-                )
+                tz       = pytz.timezone(TIME_ZONE)
+                filename = f"compliance_{datetime.now().astimezone(tz).strftime('%Y%m%d_%H%M%S')}.xlsx"
                 response = HttpResponse(
                     output,
                     content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -404,7 +406,7 @@ class ServiceAssign(PermissionRequiredMixin, View):
     permission_required = ("dcim.view_device",)
 
     def post(self, request):
-        pk_list = [int(pk) for pk in request.POST.getlist("pk")]
+        pk_list          = [int(pk) for pk in request.POST.getlist("pk")]
         selected_devices = Device.objects.filter(pk__in=pk_list)
 
         if not selected_devices.exists():
@@ -428,7 +430,7 @@ class ServiceDetach(PermissionRequiredMixin, View):
     permission_required = ("dcim.view_device",)
 
     def post(self, request):
-        pk_list = [int(pk) for pk in request.POST.getlist("pk")]
+        pk_list          = [int(pk) for pk in request.POST.getlist("pk")]
         selected_devices = Device.objects.filter(pk__in=pk_list)
 
         if not selected_devices.exists():
@@ -441,20 +443,24 @@ class ServiceDetach(PermissionRequiredMixin, View):
         return redirect(reverse("plugins:config_officer:service_mapping_list"))
 
 
-
+# ---------------------------------------------------------------------------
 # Running config page (Custom Link target)
+# ---------------------------------------------------------------------------
 
 def running_config(request, hostname):
-    """Show device running-config page – called via NetBox Custom Link."""
-    running = get_device_config(NETBOX_DEVICES_CONFIGS_PATH, hostname, "running")
+    """Show device running-config page - called via NetBox Custom Link."""
+    running = get_device_config(CONFIGS_PATH, hostname, "running")
+
     message: dict = {}
     if not running:
-        message["status"] = False
+        message["status"]  = False
         message["comment"] = "Error reading running config file from directory."
     else:
-        message["status"] = True
+        message["status"]         = True
         message["running_config"] = running
-    message["repo_state"] = get_file_repo_state(
-        NETBOX_DEVICES_CONFIGS_PATH, f"{hostname}_running.txt"
+
+    message["repo_state"] = get_device_file_repo_state(
+        CONFIGS_REPO_DIR, CONFIGS_SUBPATH, hostname, "running"
     )
+
     return render(request, "config_officer/device_running_config.html", {"message": message})
