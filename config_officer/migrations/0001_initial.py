@@ -9,9 +9,7 @@ class Migration(migrations.Migration):
 
     initial = True
 
-    dependencies = [
-        ('dcim', '0122_standardize_name_length'),
-    ]
+    dependencies = []
 
     operations = [
         migrations.CreateModel(
@@ -41,7 +39,7 @@ class Migration(migrations.Migration):
             name='ServiceRule',
             fields=[
                 ('id', models.AutoField(auto_created=True, primary_key=True, serialize=False)),
-                ('description', models.CharField(blank=True, max_length=512, null=True)),
+                ('description', models.CharField(blank=True, max_length=512)),
                 ('device_role', models.ManyToManyField(to='dcim.DeviceRole')),
                 ('device_type', models.ManyToManyField(blank=True, to='dcim.DeviceType')),
                 ('service', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='service_rules', to='config_officer.service')),
