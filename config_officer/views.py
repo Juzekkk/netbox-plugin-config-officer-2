@@ -1,6 +1,7 @@
 from copy import deepcopy
 from datetime import datetime
 import io
+import csv
 
 import django_tables2 as tables_lib
 from zoneinfo import ZoneInfo
@@ -335,29 +336,18 @@ class ServiceMappingListView(PermissionRequiredMixin, ObjectListView):
     table = ServiceMappingListTable
     template_name = "config_officer/service_mapping_list.html"
 
-    def _export_to_excel(self):
-        try:
-            import xlsxwriter
-        except ImportError:
-            return None
+    def _export_to_csv(self):
+        output = io.StringIO()
+        writer = csv.writer(output)
 
-        output = io.BytesIO()
-        header = [
-            {"header": "Hostname"},
-            {"header": "PID"},
-            {"header": "Role"},
-            {"header": "IP"},
-            {"header": "Tenant"},
-            {"header": "Compliance"},
-            {"header": "Diff"},
-            {"header": "Notes"},
-        ]
-        width = [len(i["header"]) + 2 for i in header]
-        data = []
+        writer.writerow([
+            "Hostname", "PID", "Role", "IP",
+            "Tenant", "Compliance", "Diff", "Notes",
+        ])
 
         for d in Device.objects.all().order_by("tenant"):
             if hasattr(d, "compliance"):
-                row = [
+                writer.writerow([
                     d.name,
                     d.device_type.model,
                     d.device_role.name,
@@ -366,9 +356,9 @@ class ServiceMappingListView(PermissionRequiredMixin, ObjectListView):
                     d.compliance.status,
                     d.compliance.diff or "",
                     d.compliance.notes or "",
-                ]
+                ])
             else:
-                row = [
+                writer.writerow([
                     d.name,
                     d.device_type.model,
                     d.device_role.name,
@@ -377,25 +367,8 @@ class ServiceMappingListView(PermissionRequiredMixin, ObjectListView):
                     "service not assigned",
                     "",
                     "",
-                ]
-            data.append(row)
-            w = [len(str(i)) if i else 40 for i in row]
-            width = [max(width[i], w[i]) for i in range(len(width))]
+                ])
 
-        workbook = xlsxwriter.Workbook(
-            output, {"remove_timezone": True, "default_date_format": "yyyy-mm-dd"}
-        )
-        worksheet = workbook.add_worksheet("compliance")
-        worksheet.add_table(
-            0,
-            0,
-            Device.objects.count(),
-            len(header) - 1,
-            {"columns": header, "data": data},
-        )
-        for i, w in enumerate(width):
-            worksheet.set_column(i, i, w)
-        workbook.close()
         output.seek(0)
         return output
 
@@ -429,16 +402,12 @@ class ServiceMappingListView(PermissionRequiredMixin, ObjectListView):
 
     def get(self, request, *args, **kwargs):
         if "to_excel" in request.GET:
-            output = self._export_to_excel()
-            if output:
-                tz = ZoneInfo(TIME_ZONE)
-                filename = f"compliance_{datetime.now().astimezone(tz).strftime('%Y%m%d_%H%M%S')}.xlsx"
-                response = HttpResponse(
-                    output,
-                    content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                )
-                response["Content-Disposition"] = f'attachment; filename="{filename}"'
-                return response
+            output = self._export_to_csv()
+            tz = ZoneInfo(TIME_ZONE)
+            filename = f"compliance_{datetime.now().astimezone(tz).strftime('%Y%m%d_%H%M%S')}.csv"
+            response = HttpResponse(output, content_type="text/csv; charset=utf-8")
+            response["Content-Disposition"] = f'attachment; filename="{filename}"'
+            return response
         return super().get(request, *args, **kwargs)
 
 
