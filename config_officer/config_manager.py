@@ -1,6 +1,6 @@
 """Class for config text functions."""
 
-import diffios
+from .cisco_diff import Compare
 import re
 
 
@@ -73,7 +73,7 @@ def get_config_diff(template, config, ignore=None):
             "Last configuration change",
         ]
 
-    diff = diffios.Compare(template, config, ignore)
+    diff = Compare(template, config, ignore)
 
     # Get lines that exist in template only
     missing_lines = diff.missing()
