@@ -162,26 +162,26 @@ pytest = ">=7.0.0"
 
 [[package]]
 name = "scrapli"
-version = "2024.7.30.post1"
+version = "2025.1.30"
 description = "Fast, flexible, sync/async, Python 3.7+ screen scraping client specifically for network devices"
 optional = false
-python-versions = ">=3.8"
+python-versions = ">=3.9"
 groups = ["main"]
 files = [
-    {file = "scrapli-2024.7.30.post1-py3-none-any.whl", hash = "sha256:59b96836f38d27498b141f6153ae0e169a5c806480f5e1f24cbb37ea74021e6f"},
-    {file = "scrapli-2024.7.30.post1.tar.gz", hash = "sha256:4a7b862ff66c1fabba5f0c5673cc5c46a46e24e0ebf19c37a56c398cbc3ccfde"},
+    {file = "scrapli-2025.1.30-py3-none-any.whl", hash = "sha256:f71ca4e96b56ad245f34269dc3eedf168aca54eb7b1ba96ad0c965c2b76f807e"},
+    {file = "scrapli-2025.1.30.tar.gz", hash = "sha256:3426a38b5dd6a4c67749c30f14102c04a4a43d3da17710b46fec7e53409b340e"},
 ]
 
 [package.extras]
 asyncssh = ["asyncssh (>=2.2.1,<3.0.0)"]
 community = ["scrapli_community (>=2021.1.30)"]
-dev = ["asyncssh (>=2.2.1,<3.0.0)", "black (>=23.3.0,<25.0.0)", "darglint (>=1.8.1,<2.0.0)", "genie (>=20.2,<24.4) ; sys_platform != \"win32\" and python_version < \"3.11\"", "isort (>=5.10.1,<6.0.0)", "mypy (>=1.4.1,<2.0.0)", "nox (==2024.4.15)", "ntc-templates (>=1.1.0,<7.0.0)", "paramiko (>=2.6.0,<4.0.0)", "pyats (>=20.2) ; sys_platform != \"win32\" and python_version < \"3.11\"", "pydocstyle (>=6.1.1,<7.0.0)", "pyfakefs (>=5.4.1,<6.0.0)", "pylint (>=3.0.0,<4.0.0)", "pytest (>=7.0.0,<8.0.0)", "pytest-asyncio (>=0.17.0,<1.0.0)", "pytest-cov (>=3.0.0,<5.0.0)", "scrapli-cfg (==2023.7.30)", "scrapli-replay (==2023.7.30)", "scrapli_community (>=2021.1.30)", "ssh2-python (>=0.23.0,<2.0.0) ; python_version < \"3.12\"", "textfsm (>=1.1.0,<2.0.0)", "toml (>=0.10.2,<1.0.0)", "ttp (>=0.5.0,<1.0.0)", "types-paramiko (>=2.8.6,<4.0.0)"]
-dev-darwin = ["asyncssh (>=2.2.1,<3.0.0)", "black (>=23.3.0,<25.0.0)", "darglint (>=1.8.1,<2.0.0)", "genie (>=20.2,<24.4) ; sys_platform != \"win32\" and python_version < \"3.11\"", "isort (>=5.10.1,<6.0.0)", "mypy (>=1.4.1,<2.0.0)", "nox (==2024.4.15)", "ntc-templates (>=1.1.0,<7.0.0)", "paramiko (>=2.6.0,<4.0.0)", "pyats (>=20.2) ; sys_platform != \"win32\" and python_version < \"3.11\"", "pydocstyle (>=6.1.1,<7.0.0)", "pyfakefs (>=5.4.1,<6.0.0)", "pylint (>=3.0.0,<4.0.0)", "pytest (>=7.0.0,<8.0.0)", "pytest-asyncio (>=0.17.0,<1.0.0)", "pytest-cov (>=3.0.0,<5.0.0)", "scrapli-cfg (==2023.7.30)", "scrapli-replay (==2023.7.30)", "scrapli_community (>=2021.1.30)", "textfsm (>=1.1.0,<2.0.0)", "toml (>=0.10.2,<1.0.0)", "ttp (>=0.5.0,<1.0.0)", "types-paramiko (>=2.8.6,<4.0.0)"]
+dev = ["asyncssh (>=2.2.1,<3.0.0)", "black (>=23.3.0,<25.0.0)", "darglint (>=1.8.1,<2.0.0)", "genie (>=20.2) ; sys_platform != \"win32\" and python_version < \"3.13\"", "isort (>=5.10.1,<6.0.0)", "mypy (>=1.4.1,<2.0.0)", "nox (==2024.4.15)", "ntc-templates (>=1.1.0,<8.0.0)", "paramiko (>=2.6.0,<4.0.0)", "pyats (>=20.2) ; sys_platform != \"win32\" and python_version < \"3.13\"", "pydocstyle (>=6.1.1,<7.0.0)", "pyfakefs (>=5.4.1,<6.0.0)", "pylint (>=3.0.0,<4.0.0)", "pytest (>=7.0.0,<8.0.0)", "pytest-asyncio (>=0.17.0,<1.0.0)", "pytest-cov (>=3.0.0,<5.0.0)", "scrapli-cfg (==2023.7.30)", "scrapli-replay (==2023.7.30)", "scrapli_community (>=2021.1.30)", "ssh2-python (>=0.23.0,<2.0.0) ; python_version < \"3.12\"", "textfsm (>=1.1.0,<2.0.0)", "toml (>=0.10.2,<1.0.0)", "ttp (>=0.5.0,<1.0.0)", "types-paramiko (>=2.8.6,<4.0.0)"]
+dev-darwin = ["asyncssh (>=2.2.1,<3.0.0)", "black (>=23.3.0,<25.0.0)", "darglint (>=1.8.1,<2.0.0)", "genie (>=20.2) ; sys_platform != \"win32\" and python_version < \"3.13\"", "isort (>=5.10.1,<6.0.0)", "mypy (>=1.4.1,<2.0.0)", "nox (==2024.4.15)", "ntc-templates (>=1.1.0,<8.0.0)", "paramiko (>=2.6.0,<4.0.0)", "pyats (>=20.2) ; sys_platform != \"win32\" and python_version < \"3.13\"", "pydocstyle (>=6.1.1,<7.0.0)", "pyfakefs (>=5.4.1,<6.0.0)", "pylint (>=3.0.0,<4.0.0)", "pytest (>=7.0.0,<8.0.0)", "pytest-asyncio (>=0.17.0,<1.0.0)", "pytest-cov (>=3.0.0,<5.0.0)", "scrapli-cfg (==2023.7.30)", "scrapli-replay (==2023.7.30)", "scrapli_community (>=2021.1.30)", "textfsm (>=1.1.0,<2.0.0)", "toml (>=0.10.2,<1.0.0)", "ttp (>=0.5.0,<1.0.0)", "types-paramiko (>=2.8.6,<4.0.0)"]
 docs = ["mdx-gh-links (>=0.2,<1.0)", "mkdocs (>=1.2.3,<2.0.0)", "mkdocs-gen-files (>=0.4.0,<1.0.0)", "mkdocs-literate-nav (>=0.5.0,<1.0.0)", "mkdocs-material (>=8.1.6,<10.0.0)", "mkdocs-material-extensions (>=1.0.3,<2.0.0)", "mkdocs-section-index (>=0.3.4,<1.0.0)", "mkdocstrings[python] (>=0.19.0,<1.0.0)"]
-genie = ["genie (>=20.2,<24.4) ; sys_platform != \"win32\" and python_version < \"3.11\"", "pyats (>=20.2) ; sys_platform != \"win32\" and python_version < \"3.11\""]
+genie = ["genie (>=20.2) ; sys_platform != \"win32\" and python_version < \"3.13\"", "pyats (>=20.2) ; sys_platform != \"win32\" and python_version < \"3.13\""]
 paramiko = ["paramiko (>=2.6.0,<4.0.0)"]
 ssh2 = ["ssh2-python (>=0.23.0,<2.0.0) ; python_version < \"3.12\""]
-textfsm = ["ntc-templates (>=1.1.0,<7.0.0)", "textfsm (>=1.1.0,<2.0.0)"]
+textfsm = ["ntc-templates (>=1.1.0,<8.0.0)", "textfsm (>=1.1.0,<2.0.0)"]
 ttp = ["ttp (>=0.5.0,<1.0.0)"]
 
 [[package]]
