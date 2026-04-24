@@ -128,7 +128,7 @@ def _ensure_safe_directory(repo: Repo) -> None:
     repo_path = os.path.abspath(repo.working_tree_dir)
     try:
         existing = repo.git.config(
-            "--global", "--get-all", "safe.directory"
+            "--get-all", "safe.directory"
         ).splitlines()
     except GitCommandError:
         existing = []
@@ -137,7 +137,7 @@ def _ensure_safe_directory(repo: Repo) -> None:
         return
 
     try:
-        repo.git.config("--global", "--add", "safe.directory", repo_path)
+        repo.git.config("--add", "safe.directory", repo_path)
         logger.info("[GIT] Added safe.directory: %s", repo_path)
     except Exception:
         logger.exception("[GIT] Failed to set safe.directory")
