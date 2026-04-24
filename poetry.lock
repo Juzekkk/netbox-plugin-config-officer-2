@@ -14,18 +14,6 @@ files = [
 ]
 
 [[package]]
-name = "diffios"
-version = "0.0.9"
-description = "Compare Cisco IOS configurations against a template."
-optional = false
-python-versions = "*"
-groups = ["main"]
-files = [
-    {file = "diffios-0.0.9-py2.py3-none-any.whl", hash = "sha256:a7d10cad6c22ffcfe593bf96cfc7401f24c656487c4e1ca6d8876eb305205b1d"},
-    {file = "diffios-0.0.9.tar.gz", hash = "sha256:5e5b460fca8d3694398747997a5e883149af0755fe298fc02784af951ef1ade4"},
-]
-
-[[package]]
 name = "exceptiongroup"
 version = "1.3.1"
 description = "Backport of PEP 654 (exception groups)"
@@ -279,19 +267,7 @@ files = [
     {file = "typing_extensions-4.15.0.tar.gz", hash = "sha256:0cea48d173cc12fa28ecabc3b837ea3cf6f38c6d1136f85cbaaf598984861466"},
 ]
 
-[[package]]
-name = "xlsxwriter"
-version = "3.2.9"
-description = "A Python module for creating Excel XLSX files."
-optional = false
-python-versions = ">=3.8"
-groups = ["main"]
-files = [
-    {file = "xlsxwriter-3.2.9-py3-none-any.whl", hash = "sha256:9a5db42bc5dff014806c58a20b9eae7322a134abb6fce3c92c181bfb275ec5b3"},
-    {file = "xlsxwriter-3.2.9.tar.gz", hash = "sha256:254b1c37a368c444eac6e2f867405cc9e461b0ed97a3233b2ac1e574efb4140c"},
-]
-
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "f7a8ca5e63287b626943dfbb38794c9db8dd0b5f5d5cfcad972888cf65f76ea0"
+content-hash = "c44bb35670352922fec89ec9772f383b49c6e515f4697ad32ae5091acc8da281"
