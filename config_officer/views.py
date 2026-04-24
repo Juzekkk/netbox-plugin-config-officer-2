@@ -3,7 +3,7 @@ from datetime import datetime
 import io
 
 import django_tables2 as tables_lib
-import pytz
+from zoneinfo import ZoneInfo
 from django.contrib import messages
 from django.contrib.auth.mixins import PermissionRequiredMixin
 from django.db.models import Q
@@ -431,7 +431,7 @@ class ServiceMappingListView(PermissionRequiredMixin, ObjectListView):
         if "to_excel" in request.GET:
             output = self._export_to_excel()
             if output:
-                tz = pytz.timezone(TIME_ZONE)
+                tz = ZoneInfo(TIME_ZONE)
                 filename = f"compliance_{datetime.now().astimezone(tz).strftime('%Y%m%d_%H%M%S')}.xlsx"
                 response = HttpResponse(
                     output,

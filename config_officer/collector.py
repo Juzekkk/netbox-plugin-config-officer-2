@@ -11,7 +11,7 @@ import re
 import socket
 from datetime import datetime
 
-import pytz
+from zoneinfo import ZoneInfo
 
 from scrapli.driver.core import IOSXEDriver, IOSXRDriver, NXOSDriver
 
@@ -247,7 +247,7 @@ class CollectDeviceData:
             )
 
     def _update_custom_fields(self, device_netbox) -> None:
-        tz = pytz.timezone(TIME_ZONE)
+        tz = ZoneInfo(TIME_ZONE)
         now = datetime.now(tz)
         port = self._used_kwargs.get("port", self._base_kwargs["port"])
 
