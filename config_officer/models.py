@@ -17,7 +17,9 @@ from .choices import (
     CollectStatusChoices,
 )
 from .config_manager import generate_templates_config_for_device
-
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
+from core.choices import JobStatusChoices
 
 # --------------------------------------------------------------------------------------------------------------------------
 # Collection
@@ -292,6 +294,27 @@ class CollectSchedule(JobsMixin, NetBoxModel):
 
     def get_absolute_url(self):
         return reverse("plugins:config_officer:collectschedule_edit", args=[self.pk])
+
+
+@receiver(post_delete, sender=CollectSchedule)
+def cancel_schedule_jobs(sender, instance, **kwargs):
+    """Delete all jobs related to deleted schedule."""
+    from core.models import Job
+    from django.contrib.contenttypes.models import ContentType
+
+    ct = ContentType.objects.get_for_model(CollectSchedule)
+    deleted, _ = Job.objects.filter(
+        object_type=ct,
+        object_id=instance.pk,
+        status=JobStatusChoices.STATUS_SCHEDULED,  # tylko zaplanowane, nie historia
+    ).delete()
+
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(
+        "[SCHEDULER] Cancelled %d scheduled job(s) for removed CollectSchedule pk=%d",
+        deleted, instance.pk,
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -8,24 +8,26 @@ class CollectScheduleJob(JobRunner):
 
     def run(self, *args, **kwargs):
         from django_rq import get_queue
-        from .models import Collection
+        from .models import Collection, CollectSchedule
         from .worker import collect_device_config_task
 
-        schedule = self.job.object
+        try:
+            schedule = CollectSchedule.objects.get(pk=self.job.object_id)
+        except CollectSchedule.DoesNotExist:
+            self.logger.warning(
+                f"CollectSchedule (pk={self.job.object_id}) no longer exists – skipping"
+            )
+            return
 
         if not schedule.enabled:
             self.logger.info(f"Schedule '{schedule.name}' is disabled, skipping")
             return
 
         devices = list(schedule.devices.all())
-        self.logger.info(
-            f"Schedule '{schedule.name}': enqueuing {len(devices)} device(s)"
-        )
+        self.logger.info(f"Schedule '{schedule.name}': enqueuing {len(devices)} device(s)")
 
         queue = get_queue("default")
-        commit_msg = (
-            f"schedule_{schedule.name}_{datetime.now().strftime('%Y_%m_%d_%H_%M_%S')}"
-        )
+        commit_msg = f"schedule_{schedule.name}_{datetime.now().strftime('%Y_%m_%d_%H_%M_%S')}"
 
         for device in devices:
             collect_task = Collection.objects.create(
