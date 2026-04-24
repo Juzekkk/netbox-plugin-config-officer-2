@@ -109,6 +109,9 @@ def _set_collection_status(device_nb, value: bool) -> None:
 def _open_or_init_repo() -> tuple[Repo, bool]:
     """Open an existing repo or initialise a new one. Returns (repo, is_new)."""
     try:
+        os.environ["GIT_CONFIG_COUNT"] = "1"
+        os.environ["GIT_CONFIG_KEY_0"] = "safe.directory"
+        os.environ["GIT_CONFIG_VALUE_0"] = CONFIGS_REPO_DIR
         repo = Repo(CONFIGS_REPO_DIR)
         sha = repo.head.commit.hexsha[:8] if repo.head.is_valid() else "none"
         logger.debug(

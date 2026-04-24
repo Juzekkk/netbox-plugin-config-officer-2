@@ -8,11 +8,13 @@ from datetime import datetime
 
 from git import NULL_TREE, GitCommandError, InvalidGitRepositoryError, Repo
 from git.objects.commit import Commit
+from .config import (
+    CONFIGS_REPO_DIR,
+)
 
 import logging
 
 logger = logging.getLogger(__name__)
-
 
 def _ensure_safe_directory(repo: Repo) -> None:
     """
@@ -138,6 +140,9 @@ def get_file_repo_state(repository_path: str, filename: str) -> dict:
             "comment": str,
         }
     """
+    os.environ["GIT_CONFIG_COUNT"] = "1"
+    os.environ["GIT_CONFIG_KEY_0"] = "safe.directory"
+    os.environ["GIT_CONFIG_VALUE_0"] = CONFIGS_REPO_DIR
     repo_state: dict = {"commits_count": 0, "commits": []}
 
     try:
