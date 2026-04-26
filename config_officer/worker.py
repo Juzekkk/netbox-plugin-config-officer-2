@@ -64,22 +64,45 @@ def _strip_volatile_lines(text: str) -> str:
     )
 
 
+def _prepare_ssh_key(key_path: str) -> str:
+    """
+    Copy SSH key to a temp file with correct permissions and trailing newline.
+    OpenSSH requires a newline at the end of the key file.
+    The key mounted from Kubernetes secret may lack it due to AVP stripping
+    trailing newlines from Vault values.
+    """
+    import tempfile
+    with open(key_path, "rb") as f:
+        data = f.read()
+    if not data.endswith(b"\n"):
+        logger.info("[GIT] SSH key at %r missing trailing newline - adding it", key_path)
+        data += b"\n"
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pem", mode="wb")
+    tmp.write(data)
+    tmp.close()
+    os.chmod(tmp.name, 0o600)
+    logger.info("[GIT] SSH key prepared at %r", tmp.name)
+    return tmp.name
+
+
 def _get_ssh_env(key_path: str | None) -> dict[str, str]:
     """
     Build GIT_SSH_COMMAND that uses the specified key and disables interactive prompts.
     Returns an empty dict when no key is configured.
     """
     if not key_path:
+        logger.debug("[GIT] No SSH key configured - skipping GIT_SSH_COMMAND")
         return {}
+    prepared_key = _prepare_ssh_key(key_path)
     cmd = (
-        f"ssh -i {key_path}"
+        f"ssh -i {prepared_key}"
         " -o IdentitiesOnly=yes"
         " -o StrictHostKeyChecking=accept-new"
-        " -o UserKnownHostsFile=/root/.ssh/known_hosts"
+        " -o UserKnownHostsFile=/dev/null"
         " -o BatchMode=yes"
         " -o ConnectTimeout=15"
     )
-    logger.debug("[GIT] GIT_SSH_COMMAND: %s", cmd)
+    logger.info("[GIT] GIT_SSH_COMMAND: %s", cmd)
     return {"GIT_SSH_COMMAND": cmd}
 
 
