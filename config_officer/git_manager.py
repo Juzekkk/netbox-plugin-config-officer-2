@@ -11,6 +11,7 @@ from git.objects.commit import Commit
 from .config import (
     CONFIGS_REPO_DIR,
 )
+from .git_manager import configure_safe_directory 
 
 import logging
 
@@ -140,28 +141,36 @@ def get_file_repo_state(repository_path: str, filename: str) -> dict:
             "comment": str,
         }
     """
+    import tempfile
+
+    repo_state: dict = {"commits_count": 0, "commits": []}
+
+    # Must happen before any Repo() call - writes a temp gitconfig with
+    # safe.directory so git doesn't refuse to open a repo owned by a different uid
+    cfg_path = os.path.join(tempfile.gettempdir(), "gitconfig_netbox")
+    with open(cfg_path, "w") as f:
+        f.write(f"[safe]\n\tdirectory = {CONFIGS_REPO_DIR}\n")
+    os.environ["GIT_CONFIG_GLOBAL"] = cfg_path
     os.environ["GIT_CONFIG_COUNT"] = "1"
     os.environ["GIT_CONFIG_KEY_0"] = "safe.directory"
     os.environ["GIT_CONFIG_VALUE_0"] = CONFIGS_REPO_DIR
-    repo_state: dict = {"commits_count": 0, "commits": []}
+
+    logger.info(
+        "[GIT] get_file_repo_state: repo=%r file=%r", repository_path, filename
+    )
 
     try:
         try:
             repo = Repo(repository_path)
         except InvalidGitRepositoryError:
-            logger.error("[GIT] Not a git repository: %s", repository_path)
+            logger.error("[GIT] Not a git repository: %r", repository_path)
             repo_state["error"] = f"not a git repository: {repository_path}"
             return repo_state
 
-        # Ensure this process trusts the repo regardless of directory ownership.
-        # The worker container sets safe.directory for itself, but the netbox
-        # web container is a separate process (different uid) and needs it too.
-        _ensure_safe_directory(repo)
-
         head_sha = repo.head.commit.hexsha[:8] if repo.head.is_valid() else "none"
         branch = repo.active_branch.name if not repo.head.is_detached else "detached"
-        logger.debug(
-            "[GIT] Repo loaded: %s  HEAD=%s  branch=%s",
+        logger.info(
+            "[GIT] Repo loaded: %r  HEAD=%s  branch=%s",
             repository_path,
             head_sha,
             branch,
@@ -176,7 +185,7 @@ def get_file_repo_state(repository_path: str, filename: str) -> dict:
         commits.reverse()
 
         repo_state["commits_count"] = len(commits)
-        logger.debug("[GIT] %d commit(s) found for %s", len(commits), filename)
+        logger.info("[GIT] %d commit(s) found for %r", len(commits), filename)
 
         if not commits:
             repo_state["comment"] = f"no commits for {filename}"
@@ -190,17 +199,18 @@ def get_file_repo_state(repository_path: str, filename: str) -> dict:
         )
 
         for i, commit in enumerate(commits):
-            logger.debug(
-                "[GIT] Processing commit [%d/%d] %s",
+            logger.info(
+                "[GIT] Processing commit [%d/%d] %s: %r",
                 i + 1,
                 len(commits),
                 commit.hexsha[:8],
+                commit.message.strip()[:60],
             )
             try:
                 diff_text = _diff_for_commit(commit, filename)
             except Exception:
                 logger.exception("[GIT] Diff error for commit %s", commit.hexsha[:8])
-                diff_text = f"diff error: see logs"
+                diff_text = "diff error: see logs"
 
             repo_state["commits"].append(
                 {
@@ -211,7 +221,9 @@ def get_file_repo_state(repository_path: str, filename: str) -> dict:
                 }
             )
 
-        logger.debug("[GIT] Repo state build complete (%d commits)", len(commits))
+        logger.info(
+            "[GIT] Repo state build complete (%d commits)", len(commits)
+        )
 
     except Exception:
         logger.exception("[GIT] Fatal error in get_file_repo_state")

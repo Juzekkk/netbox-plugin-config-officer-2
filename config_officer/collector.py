@@ -54,14 +54,18 @@ def _resolve_credentials(hostname: str) -> tuple[str, str, int]:
 
     if device_conf:
         logger.info(
-            "[CREDS] Per-device config for %r: user=%r port=%d",
+            "[CREDS] Per-device override for %r: user=%r port=%d",
             hostname,
             username,
             port,
         )
     else:
-        logger.debug(
-            "[CREDS] Global config for %r: user=%r port=%d", hostname, username, port
+        logger.info(
+            "[CREDS] Global credentials for %r: user=%r port=%d (password set: %s)",
+            hostname,
+            username,
+            port,
+            bool(password),
         )
 
     return username, password, port
@@ -112,7 +116,6 @@ def _collect_nxos(
 def _collect_iosxr(
     conn, host_ip: str
 ) -> tuple[ParsedDevice, dict[str, ParsedInterface]]:
-    # IOS-XR 'show version' is close enough to IOS-XE for our purposes
     device = IOSXEParser.parse_show_version(_send(conn, "show version"))
     ifaces: dict[str, ParsedInterface] = {}
 
@@ -174,31 +177,54 @@ class CollectDeviceData:
             "ssh_config_file": _ssh_config_path(),
         }
 
-        # Populated during collection
         self._device: ParsedDevice = ParsedDevice()
         self._interfaces: dict[str, ParsedInterface] = {}
         self._used_kwargs: dict = {}
 
         logger.info(
-            "[COLLECT] Initialized: %r host=%s platform=%s port=%d",
+            "[COLLECT] Initialized: %r host=%s platform=%s port=%d ssh_config=%s",
             self.hostname_ipam,
             ip,
             self.platform,
             port,
+            _ssh_config_path(),
         )
 
     def _check_reachability(self) -> None:
         host = self._base_kwargs["host"]
         timeout = self._base_kwargs["timeout_socket"]
 
+        logger.info(
+            "[REACH] Checking reachability of %s (timeout=%ds)", host, timeout
+        )
+
+        last_error: Exception | None = None
         for port in (22, 23):
             try:
                 with socket.create_connection((host, port), timeout=timeout):
-                    logger.debug("[REACH] Port %d open on %s", port, host)
+                    logger.info("[REACH] Port %d is OPEN on %s - proceeding", port, host)
                     return
+            except socket.timeout:
+                logger.info(
+                    "[REACH] Port %d on %s: TIMEOUT after %ds", port, host, timeout
+                )
+                last_error = socket.timeout(f"timeout after {timeout}s")
+            except ConnectionRefusedError:
+                logger.info(
+                    "[REACH] Port %d on %s: CONNECTION REFUSED", port, host
+                )
+                last_error = ConnectionRefusedError("connection refused")
             except OSError as e:
-                logger.debug("[REACH] Port %d closed on %s: %s", port, host, e)
+                logger.info(
+                    "[REACH] Port %d on %s: OSError: %s", port, host, e
+                )
+                last_error = e
 
+        logger.error(
+            "[REACH] %s is UNREACHABLE on both ports 22 and 23. Last error: %s",
+            host,
+            last_error,
+        )
         raise CollectionException(
             reason=CollectFailChoices.FAIL_CONNECT,
             message="Device unreachable on ports 22 and 23",
@@ -207,30 +233,50 @@ class CollectDeviceData:
     def _connect_and_collect(self) -> None:
         """Try SSH, fall back to Telnet. Raises CollectionException on total failure."""
         host = self._base_kwargs["host"]
+        port = self._base_kwargs["port"]
         driver = PLATFORMS[self.platform]
         collector = _PLATFORM_COLLECTORS[self.platform]
 
         # SSH
-        logger.debug("[CONNECT] Attempting SSH to %s", host)
+        logger.info(
+            "[CONNECT] Attempting SSH to %s:%d as %r (platform=%s)",
+            host,
+            port,
+            self._base_kwargs["auth_username"],
+            self.platform,
+        )
         try:
             with driver(**self._base_kwargs) as conn:
-                logger.info("[CONNECT] SSH connected to %s", host)
+                logger.info("[CONNECT] SSH connection established to %s:%d", host, port)
                 self._device, self._interfaces = collector(conn, host)
                 self._used_kwargs = self._base_kwargs
+                logger.info("[CONNECT] Data collection via SSH complete for %s", host)
                 return
         except Exception as e:
-            logger.warning("[CONNECT] SSH failed: %s: %s", type(e).__name__, e)
+            logger.warning(
+                "[CONNECT] SSH failed for %s:%d - %s: %s",
+                host,
+                port,
+                type(e).__name__,
+                e,
+            )
 
         # Telnet fallback
-        logger.debug("[CONNECT] Falling back to Telnet on %s", host)
+        logger.info("[CONNECT] Attempting Telnet fallback to %s:23", host)
         telnet_kwargs = {**self._base_kwargs, "port": 23, "transport": "telnet"}
         try:
             with driver(**telnet_kwargs) as conn:
-                logger.info("[CONNECT] Telnet connected to %s", host)
+                logger.info("[CONNECT] Telnet connection established to %s:23", host)
                 self._device, self._interfaces = collector(conn, host)
                 self._used_kwargs = telnet_kwargs
+                logger.info("[CONNECT] Data collection via Telnet complete for %s", host)
         except Exception as e:
-            logger.error("[CONNECT] Telnet also failed: %s: %s", type(e).__name__, e)
+            logger.error(
+                "[CONNECT] Telnet also failed for %s:23 - %s: %s",
+                host,
+                type(e).__name__,
+                e,
+            )
             raise CollectionException(
                 reason=CollectFailChoices.FAIL_LOGIN,
                 message="Cannot login via SSH or Telnet",
@@ -240,11 +286,21 @@ class CollectDeviceData:
         """Raise CollectionException if the collected serial doesn't match NetBox."""
         nb_sn = device_netbox.serial
         dev_sn = self._device.serial
+        logger.info(
+            "[SERIAL] NetBox serial=%r collected serial=%r", nb_sn, dev_sn
+        )
         if nb_sn and dev_sn and nb_sn != dev_sn:
+            logger.error(
+                "[SERIAL] Mismatch for %r: NetBox=%r Device=%r",
+                self.hostname_ipam,
+                nb_sn,
+                dev_sn,
+            )
             raise CollectionException(
                 reason=CollectFailChoices.FAIL_UPDATE,
                 message=f"Serial mismatch: NetBox={nb_sn!r} Device={dev_sn!r}",
             )
+        logger.info("[SERIAL] Serial check passed for %r", self.hostname_ipam)
 
     def _update_custom_fields(self, device_netbox) -> None:
         tz = ZoneInfo(TIME_ZONE)
@@ -258,28 +314,44 @@ class CollectDeviceData:
             CF_LAST_COLLECT_DATE: now.date(),
             CF_LAST_COLLECT_TIME: now.strftime("%H:%M:%S"),
         }
+        logger.info("[CF] Updating custom fields for %r: %r", self.hostname_ipam, fields)
         for cf_name, cf_value in fields.items():
             if not cf_name:
                 continue
-            logger.debug("[CF] %r = %r", cf_name, cf_value)
             device_netbox.custom_field_data[cf_name] = cf_value
 
         device_netbox.save()
+        logger.info("[CF] Custom fields saved for %r", self.hostname_ipam)
 
     def _save_running_config(self) -> None:
         os.makedirs(CONFIGS_PATH, exist_ok=True)
         filename = os.path.join(CONFIGS_PATH, f"{self.hostname_ipam}_running.txt")
 
+        logger.info(
+            "[CONFIG] Fetching running-config from %r -> %s",
+            self.hostname_ipam,
+            filename,
+        )
         driver = PLATFORMS[self.platform]
         with driver(**self._used_kwargs) as conn:
             conn.send_command("terminal length 0")
             raw = conn.send_command("show running-config").result
+            logger.info(
+                "[CONFIG] Received %d chars of running-config from %r",
+                len(raw),
+                self.hostname_ipam,
+            )
             clean = sanitize_config(raw)
+            logger.info(
+                "[CONFIG] After sanitization: %d chars (%d lines stripped)",
+                len(clean),
+                len(raw.splitlines()) - len(clean.splitlines()),
+            )
 
         with open(filename, "w") as fh:
             fh.write(clean)
 
-        logger.info("[COLLECT] Running config saved -> %s", filename)
+        logger.info("[CONFIG] Running config saved -> %s", filename)
 
     # Main entry point
     def collect_information(self) -> None:
@@ -298,6 +370,11 @@ class CollectDeviceData:
         self._update_custom_fields(device_netbox)
 
         if COLLECT_INTERFACES_DATA and self._interfaces:
+            logger.info(
+                "[COLLECT] Syncing %d interfaces to NetBox for %r",
+                len(self._interfaces),
+                self.hostname_ipam,
+            )
             sync_interfaces_to_netbox(device_netbox, self._interfaces)
 
         self._save_running_config()

@@ -106,44 +106,58 @@ def _set_collection_status(device_nb, value: bool) -> None:
 # ---------------------------------------------------------------------------
 
 
+def configure_safe_directory(repo_dir: str) -> None:
+    """
+    Configure git safe.directory via environment variables and a temp gitconfig.
+    This avoids writing to ~/.gitconfig which may be read-only in the container.
+    Must be called BEFORE any Repo() instantiation.
+    """
+    import tempfile
+
+    cfg_path = os.path.join(tempfile.gettempdir(), "gitconfig_netbox")
+    with open(cfg_path, "w") as f:
+        f.write(f"[safe]\n\tdirectory = {repo_dir}\n")
+
+    os.environ["GIT_CONFIG_GLOBAL"] = cfg_path
+    # Belt-and-suspenders: also set via GIT_CONFIG_COUNT env protocol
+    os.environ["GIT_CONFIG_COUNT"] = "1"
+    os.environ["GIT_CONFIG_KEY_0"] = "safe.directory"
+    os.environ["GIT_CONFIG_VALUE_0"] = repo_dir
+
+    logger.info(
+        "[GIT] safe.directory configured for %r via %s", repo_dir, cfg_path
+    )
+
+
 def _open_or_init_repo() -> tuple[Repo, bool]:
-    """Open an existing repo or initialise a new one. Returns (repo, is_new)."""
+    """
+    Open an existing repo or initialise a new one.
+    safe.directory MUST be configured before calling this.
+    Returns (repo, is_new).
+    """
+    logger.info("[GIT] Opening repo at %r", CONFIGS_REPO_DIR)
     try:
-        os.environ["GIT_CONFIG_COUNT"] = "1"
-        os.environ["GIT_CONFIG_KEY_0"] = "safe.directory"
-        os.environ["GIT_CONFIG_VALUE_0"] = CONFIGS_REPO_DIR
         repo = Repo(CONFIGS_REPO_DIR)
         sha = repo.head.commit.hexsha[:8] if repo.head.is_valid() else "none"
-        logger.debug(
-            "[GIT] Opened existing repo at %s (HEAD=%s)", CONFIGS_REPO_DIR, sha
+        logger.info(
+            "[GIT] Opened existing repo at %r (HEAD=%s, branch=%s)",
+            CONFIGS_REPO_DIR,
+            sha,
+            repo.active_branch.name if not repo.head.is_detached else "detached",
         )
         return repo, False
-    except (InvalidGitRepositoryError, NoSuchPathError):
-        logger.info("[GIT] No repo at %s - initialising", CONFIGS_REPO_DIR)
+    except InvalidGitRepositoryError:
+        logger.info("[GIT] No valid repo at %r - initialising", CONFIGS_REPO_DIR)
         os.makedirs(CONFIGS_PATH, exist_ok=True)
         repo = Repo.init(CONFIGS_REPO_DIR)
-        logger.info("[GIT] Initialised new repo at %s", CONFIGS_REPO_DIR)
+        logger.info("[GIT] Initialised new repo at %r", CONFIGS_REPO_DIR)
         return repo, True
-
-
-def _ensure_safe_directory(repo: Repo) -> None:
-    """Mark the repo path as safe.directory to avoid dubious-ownership errors."""
-    repo_path = os.path.abspath(repo.working_tree_dir)
-    try:
-        existing = repo.git.config(
-            "--get-all", "safe.directory"
-        ).splitlines()
-    except GitCommandError:
-        existing = []
-
-    if repo_path in existing:
-        return
-
-    try:
-        repo.git.config("--add", "safe.directory", repo_path)
-        logger.info("[GIT] Added safe.directory: %s", repo_path)
-    except Exception:
-        logger.exception("[GIT] Failed to set safe.directory")
+    except NoSuchPathError:
+        logger.info("[GIT] Path %r does not exist - creating and initialising", CONFIGS_REPO_DIR)
+        os.makedirs(CONFIGS_PATH, exist_ok=True)
+        repo = Repo.init(CONFIGS_REPO_DIR)
+        logger.info("[GIT] Initialised new repo at %r", CONFIGS_REPO_DIR)
+        return repo, True
 
 
 def _ensure_branch(repo: Repo) -> None:
@@ -443,8 +457,9 @@ def git_commit_configs_changes(msg: str) -> str:
         return "deferred: active collect tasks"
 
     try:
+        configure_safe_directory(CONFIGS_REPO_DIR)
+
         repo, is_new = _open_or_init_repo()
-        _ensure_safe_directory(repo)
         has_remote = _ensure_remote(repo)
 
         if is_new and has_remote:
