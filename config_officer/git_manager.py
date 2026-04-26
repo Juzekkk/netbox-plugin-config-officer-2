@@ -11,32 +11,11 @@ from git.objects.commit import Commit
 from .config import (
     CONFIGS_REPO_DIR,
 )
-from .git_manager import configure_safe_directory 
+from .git_utils import configure_safe_directory
 
 import logging
 
 logger = logging.getLogger(__name__)
-
-def _ensure_safe_directory(repo: Repo) -> None:
-    """
-    Mark the repo path as safe.directory in the global git config for the
-    current process user.  Required when the directory is owned by a different
-    uid (e.g. written by the worker container, read by the netbox web container).
-    """
-    repo_path = os.path.abspath(repo.working_tree_dir)
-    try:
-        existing = repo.git.config(
-            "--get-all", "safe.directory"
-        ).splitlines()
-    except GitCommandError:
-        existing = []
-
-    if repo_path not in existing:
-        try:
-            repo.git.config("--add", "safe.directory", repo_path)
-            logger.debug("[GIT] Marked safe.directory: %s", repo_path)
-        except Exception:
-            logger.exception("[GIT] Failed to set safe.directory for %s", repo_path)
 
 
 # ---------------------------------------------------------------------------
@@ -141,19 +120,9 @@ def get_file_repo_state(repository_path: str, filename: str) -> dict:
             "comment": str,
         }
     """
-    import tempfile
-
     repo_state: dict = {"commits_count": 0, "commits": []}
 
-    # Must happen before any Repo() call - writes a temp gitconfig with
-    # safe.directory so git doesn't refuse to open a repo owned by a different uid
-    cfg_path = os.path.join(tempfile.gettempdir(), "gitconfig_netbox")
-    with open(cfg_path, "w") as f:
-        f.write(f"[safe]\n\tdirectory = {CONFIGS_REPO_DIR}\n")
-    os.environ["GIT_CONFIG_GLOBAL"] = cfg_path
-    os.environ["GIT_CONFIG_COUNT"] = "1"
-    os.environ["GIT_CONFIG_KEY_0"] = "safe.directory"
-    os.environ["GIT_CONFIG_VALUE_0"] = CONFIGS_REPO_DIR
+    configure_safe_directory(CONFIGS_REPO_DIR)
 
     logger.info(
         "[GIT] get_file_repo_state: repo=%r file=%r", repository_path, filename

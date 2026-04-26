@@ -43,6 +43,7 @@ from .config_manager import get_config_diff
 from .custom_exceptions import CollectionException
 from .git_manager import get_days_after_update, get_device_config
 from .models import Collection, Compliance, ServiceMapping
+from .git_utils import configure_safe_directory
 
 GLOBAL_TASK_INIT_MESSAGE: str = "global_collection_task"
 
@@ -104,29 +105,6 @@ def _set_collection_status(device_nb, value: bool) -> None:
 # ---------------------------------------------------------------------------
 # Git helpers
 # ---------------------------------------------------------------------------
-
-
-def configure_safe_directory(repo_dir: str) -> None:
-    """
-    Configure git safe.directory via environment variables and a temp gitconfig.
-    This avoids writing to ~/.gitconfig which may be read-only in the container.
-    Must be called BEFORE any Repo() instantiation.
-    """
-    import tempfile
-
-    cfg_path = os.path.join(tempfile.gettempdir(), "gitconfig_netbox")
-    with open(cfg_path, "w") as f:
-        f.write(f"[safe]\n\tdirectory = {repo_dir}\n")
-
-    os.environ["GIT_CONFIG_GLOBAL"] = cfg_path
-    # Belt-and-suspenders: also set via GIT_CONFIG_COUNT env protocol
-    os.environ["GIT_CONFIG_COUNT"] = "1"
-    os.environ["GIT_CONFIG_KEY_0"] = "safe.directory"
-    os.environ["GIT_CONFIG_VALUE_0"] = repo_dir
-
-    logger.info(
-        "[GIT] safe.directory configured for %r via %s", repo_dir, cfg_path
-    )
 
 
 def _open_or_init_repo() -> tuple[Repo, bool]:
