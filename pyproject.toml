@@ -26,7 +26,90 @@ gitdb = ">=4.0.1,<5.0"
 [tool.poetry.group.dev.dependencies]
 pytest = ">=8,<10"
 pytest-django = "^4.8"
+ruff = ">=0.4,<1.0"
+pre-commit = ">=3.7,<5.0"
+commitizen = ">=3.27,<5.0"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+# ---------------------------------------------------------------------------
+# Ruff
+# ---------------------------------------------------------------------------
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+# Directories excluded from linting
+exclude = [
+    ".git",
+    ".venv",
+    "__pycache__",
+    "migrations",
+    "config_officer/migrations",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle - style errors
+    "W",   # pycodestyle - style warnings
+    "F",   # pyflakes   - undefined names, unused imports, etc.
+    "I",   # isort      - import ordering
+    "UP",  # pyupgrade  - modernise Python syntax
+    "B",   # flake8-bugbear - common footguns
+    "C4",  # flake8-comprehensions - simplify list/dict/set comprehensions
+    "SIM", # flake8-simplify - redundant constructs
+    "TID", # flake8-tidy-imports
+    "PL",  # pylint - curated subset of pylint rules
+]
+ignore = [
+    "E501",    # line length is handled by the formatter, not the linter
+    "PLR0913", # too many arguments - unavoidable in NetBox plugin views
+    "PLR2004", # magic value comparison - acceptable in tests
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["config_officer"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+
+# ---------------------------------------------------------------------------
+# Pytest
+# ---------------------------------------------------------------------------
+
+[tool.pytest.ini_options]
+# Running unit tests without Django - no database required.
+# If you have a settings module, uncomment the line below and set the path:
+# DJANGO_SETTINGS_MODULE = "netbox.settings"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--tb=short",
+    "--strict-markers",    # unknown marker = error, enforces explicit marker declarations
+]
+markers = [
+    "unit: fast unit tests with no external dependencies",
+    "integration: tests that require a database or external services",
+    "slow: tests taking longer than 1 s",
+]
+
+# ---------------------------------------------------------------------------
+# Commitizen
+# ---------------------------------------------------------------------------
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+version = "0.1.9"
+version_files = [
+    "pyproject.toml:^version"
+]
+tag_format = "v$version"
+update_changelog_on_bump = true
+major_version_zero = true   # while in v0.x, a BREAKING CHANGE bumps minor, not major
