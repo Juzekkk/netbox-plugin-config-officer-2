@@ -1,10 +1,11 @@
+import csv
+import io
 from copy import deepcopy
 from datetime import datetime
-import io
-import csv
+from zoneinfo import ZoneInfo
 
 import django_tables2 as tables_lib
-from zoneinfo import ZoneInfo
+from dcim.models import Device
 from django.contrib import messages
 from django.contrib.auth.mixins import PermissionRequiredMixin
 from django.db.models import Q
@@ -13,53 +14,49 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views import View
 from django_rq import get_queue
-
 from netbox.views.generic import (
-    ObjectListView,
-    ObjectEditView,
     ObjectDeleteView,
+    ObjectEditView,
     ObjectJobsView,
+    ObjectListView,
 )
-
-from dcim.models import Device
 
 from .choices import CollectStatusChoices
 from .config import CONFIGS_PATH, CONFIGS_REPO_DIR, CONFIGS_SUBPATH, TIME_ZONE
 from .filters import CollectionFilter, ServiceMappingFilter
 from .forms import (
     CollectionFilterForm,
-    TemplateForm,
+    CollectScheduleForm,
     ServiceForm,
-    ServiceRuleForm,
-    ServiceMappingForm,
     ServiceMappingCreateForm,
     ServiceMappingFilterForm,
-    CollectScheduleForm,
+    ServiceMappingForm,
+    ServiceRuleForm,
+    TemplateForm,
 )
 from .git_manager import (
-    get_device_config,
     get_config_update_date,
+    get_device_config,
     get_device_file_repo_state,
 )
 from .models import (
     Collection,
-    Template,
-    Service,
-    ServiceRule,
-    ServiceMapping,
-    Compliance,
     CollectSchedule,
+    Compliance,
+    Service,
+    ServiceMapping,
+    ServiceRule,
+    Template,
 )
 from .tables import (
     CollectionTable,
-    TemplateListTable,
-    ServiceListTable,
-    ServiceRuleListTable,
-    ServiceMappingListTable,
     CollectScheduleTable,
+    ServiceListTable,
+    ServiceMappingListTable,
+    ServiceRuleListTable,
+    TemplateListTable,
 )
 from .worker import collect_device_config_task
-
 
 # ---------------------------------------------------------------------------
 # Base helpers
@@ -180,9 +177,7 @@ def collect_device_config(request, slug):
         )
         return redirect(reverse("plugins:config_officer:collection_status"))
     except Exception as exc:
-        return render(
-            request, "config_officer/collection_message.html", {"message": str(exc)}
-        )
+        return render(request, "config_officer/collection_message.html", {"message": str(exc)})
 
 
 # ---------------------------------------------------------------------------
@@ -214,9 +209,7 @@ class TemplateView(PermissionRequiredMixin, View):
 
     def get(self, request, pk):
         template = get_object_or_404(Template, pk=pk)
-        return render(
-            request, "config_officer/template_view.html", {"template": template}
-        )
+        return render(request, "config_officer/template_view.html", {"template": template})
 
 
 class TemplateDeleteView(PermissionRequiredMixin, ObjectDeleteView):
@@ -313,9 +306,7 @@ class ComplianceView(PermissionRequiredMixin, View):
             "config_officer/compliance_view.html",
             {
                 "record": record,
-                "device_config": get_device_config(
-                    CONFIGS_PATH, record.device.name, "running"
-                ),
+                "device_config": get_device_config(CONFIGS_PATH, record.device.name, "running"),
                 "config_update_date": get_config_update_date(
                     CONFIGS_PATH, record.device.name, "running"
                 ),
@@ -340,34 +331,46 @@ class ServiceMappingListView(PermissionRequiredMixin, ObjectListView):
         output = io.StringIO()
         writer = csv.writer(output)
 
-        writer.writerow([
-            "Hostname", "PID", "Role", "IP",
-            "Tenant", "Compliance", "Diff", "Notes",
-        ])
+        writer.writerow(
+            [
+                "Hostname",
+                "PID",
+                "Role",
+                "IP",
+                "Tenant",
+                "Compliance",
+                "Diff",
+                "Notes",
+            ]
+        )
 
         for d in Device.objects.all().order_by("tenant"):
             if hasattr(d, "compliance"):
-                writer.writerow([
-                    d.name,
-                    d.device_type.model,
-                    d.device_role.name,
-                    str(d.primary_ip4).split("/")[0] if d.primary_ip4 else "",
-                    str(d.tenant),
-                    d.compliance.status,
-                    d.compliance.diff or "",
-                    d.compliance.notes or "",
-                ])
+                writer.writerow(
+                    [
+                        d.name,
+                        d.device_type.model,
+                        d.device_role.name,
+                        str(d.primary_ip4).split("/")[0] if d.primary_ip4 else "",
+                        str(d.tenant),
+                        d.compliance.status,
+                        d.compliance.diff or "",
+                        d.compliance.notes or "",
+                    ]
+                )
             else:
-                writer.writerow([
-                    d.name,
-                    d.device_type.model,
-                    d.device_role.name,
-                    str(d.primary_ip4).split("/")[0] if d.primary_ip4 else "",
-                    str(d.tenant),
-                    "service not assigned",
-                    "",
-                    "",
-                ])
+                writer.writerow(
+                    [
+                        d.name,
+                        d.device_type.model,
+                        d.device_role.name,
+                        str(d.primary_ip4).split("/")[0] if d.primary_ip4 else "",
+                        str(d.tenant),
+                        "service not assigned",
+                        "",
+                        "",
+                    ]
+                )
 
         output.seek(0)
         return output
@@ -395,9 +398,7 @@ class ServiceMappingListView(PermissionRequiredMixin, ObjectListView):
             get_queue("default").enqueue(
                 "config_officer.worker.check_device_config_compliance", device=device
             )
-        messages.success(
-            request, f"{list(services)} attached to {len(data['pk'])} device(s)."
-        )
+        messages.success(request, f"{list(services)} attached to {len(data['pk'])} device(s).")
         return redirect(request.get_full_path())
 
     def get(self, request, *args, **kwargs):
@@ -461,9 +462,7 @@ class ServiceDetach(PermissionRequiredMixin, View):
 
         ServiceMapping.objects.filter(device__in=selected_devices).delete()
         Compliance.objects.filter(device__in=selected_devices).delete()
-        messages.success(
-            request, f"{selected_devices.count()} device(s) de-attached from service."
-        )
+        messages.success(request, f"{selected_devices.count()} device(s) de-attached from service.")
         return redirect(reverse("plugins:config_officer:service_mapping_list"))
 
 
@@ -488,9 +487,7 @@ def running_config(request, hostname):
         CONFIGS_REPO_DIR, CONFIGS_SUBPATH, hostname, "running"
     )
 
-    return render(
-        request, "config_officer/device_running_config.html", {"message": message}
-    )
+    return render(request, "config_officer/device_running_config.html", {"message": message})
 
 
 # ---------------------------------------------------------------------------
@@ -525,9 +522,7 @@ class CollectScheduleRunNowView(View):
         schedule = get_object_or_404(CollectSchedule, pk=pk)
 
         queue = get_queue("default")
-        commit_msg = (
-            f"schedule_{schedule.name}_{datetime.now().strftime('%Y_%m_%d_%H_%M_%S')}"
-        )
+        commit_msg = f"schedule_{schedule.name}_{datetime.now().strftime('%Y_%m_%d_%H_%M_%S')}"
 
         for device in schedule.devices.all():
             collect_task = Collection.objects.create(

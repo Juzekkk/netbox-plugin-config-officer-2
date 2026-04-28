@@ -1,5 +1,6 @@
-from rest_framework import serializers
 from netbox.api.serializers import NetBoxModelSerializer
+from rest_framework import serializers
+
 from config_officer.models import Collection, CollectSchedule
 
 
@@ -15,6 +16,7 @@ class CollectionSerializer(serializers.ModelSerializer):
             "status",
             "message",
         ]
+
 
 class CollectScheduleSerializer(NetBoxModelSerializer):
     devices = serializers.PrimaryKeyRelatedField(many=True, read_only=True)

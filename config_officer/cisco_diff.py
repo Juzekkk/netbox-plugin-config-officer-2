@@ -15,7 +15,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
@@ -69,14 +68,14 @@ class Config:
         ignore_lines: list[str] | str | None = None,
     ) -> None:
         raw = _load(data)
-        self._lines = [l.rstrip() for l in raw if _valid(l)]
+        self._lines = [line.rstrip() for line in raw if _valid(line)]
 
         if ignore_lines is None:
             self._ignores: list[str] = []
         elif isinstance(ignore_lines, list):
             self._ignores = [i.strip() for i in ignore_lines]
         else:
-            self._ignores = [l.strip() for l in _load(ignore_lines) if l.strip()]
+            self._ignores = [line.strip() for line in _load(ignore_lines) if line.strip()]
 
     # ------------------------------------------------------------------
     # Internal grouping
@@ -167,29 +166,21 @@ class Compare:
         config: list[str] | str | Config,
         ignore_lines: list[str] | str | None = None,
     ) -> None:
-        self.template = (
-            template if isinstance(template, Config) else Config(template, ignore_lines)
-        )
-        self.config = (
-            config if isinstance(config, Config) else Config(config, ignore_lines)
-        )
+        self.template = template if isinstance(template, Config) else Config(template, ignore_lines)
+        self.config = config if isinstance(config, Config) else Config(config, ignore_lines)
 
     # ------------------------------------------------------------------
     # Core comparison
     # ------------------------------------------------------------------
 
-    def _find_matching_parent(
-        self, tmpl_parent: str, cfg_parents: list[str]
-    ) -> str | None:
+    def _find_matching_parent(self, tmpl_parent: str, cfg_parents: list[str]) -> str | None:
         """Find a config parent line matching the template parent (with {{ }})."""
         for cp in cfg_parents:
             if _matches(tmpl_parent, cp):
                 return cp
         return None
 
-    def _find_matching_child(
-        self, tmpl_child: str, cfg_children: list[str]
-    ) -> str | None:
+    def _find_matching_child(self, tmpl_child: str, cfg_children: list[str]) -> str | None:
         for cc in cfg_children:
             if _matches(tmpl_child, cc):
                 return cc
@@ -211,9 +202,7 @@ class Compare:
             tmpl_parent = tmpl_group[0]
             tmpl_children = tmpl_group[1:]
 
-            matched_parent = self._find_matching_parent(
-                tmpl_parent, list(cfg_map.keys())
-            )
+            matched_parent = self._find_matching_parent(tmpl_parent, list(cfg_map.keys()))
 
             if matched_parent is None:
                 # Entire block missing from config

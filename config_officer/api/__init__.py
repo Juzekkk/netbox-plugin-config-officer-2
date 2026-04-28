@@ -1,1 +1,1 @@
-""" REST API module for netbox-plugin-config-officer."""
+"""REST API module for netbox-plugin-config-officer."""

@@ -1,20 +1,18 @@
 import django_filters
-from .models import Collection
+from dcim.models import Device, DeviceRole, DeviceType
 from django.db.models import Q
-from dcim.models import DeviceRole, DeviceType
-from .choices import ServiceComplianceChoices
-from netbox.filtersets import PrimaryModelFilterSet
 from extras.filters import TagFilter
-from dcim.models import Device
+from netbox.filtersets import PrimaryModelFilterSet
+
+from .choices import ServiceComplianceChoices
+from .models import Collection
 
 
 class CollectionFilter(django_filters.FilterSet):
     q = django_filters.CharFilter(method="search")
 
     status = django_filters.CharFilter(field_name="status", lookup_expr="icontains")
-    failed_reason = django_filters.CharFilter(
-        field_name="failed_reason", lookup_expr="icontains"
-    )
+    failed_reason = django_filters.CharFilter(field_name="failed_reason", lookup_expr="icontains")
 
     class Meta:
         model = Collection
@@ -23,9 +21,7 @@ class CollectionFilter(django_filters.FilterSet):
     def search(self, queryset, name, value):
         if not value.strip():
             return queryset
-        return queryset.filter(
-            Q(status__icontains=value) | Q(failed_reason__icontains=value)
-        )
+        return queryset.filter(Q(status__icontains=value) | Q(failed_reason__icontains=value))
 
 
 class ServiceMappingFilter(PrimaryModelFilterSet):

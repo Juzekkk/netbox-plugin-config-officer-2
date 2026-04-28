@@ -1,7 +1,8 @@
 """Class for config text functions."""
 
-from .cisco_diff import Compare
 import re
+
+from .cisco_diff import Compare
 
 
 def get_lines_in_section(config, section):
@@ -34,11 +35,7 @@ def is_section(config, line):
         return False
     if re.match(r"^ ", line):
         return False
-    else:
-        if re.match(r"^ ", config[config.index(line) + 1]):
-            return True
-        else:
-            return False
+    return bool(re.match(r"^ ", config[config.index(line) + 1]))
 
 
 def merge_configs(config1, config2):
@@ -49,10 +46,9 @@ def merge_configs(config1, config2):
     if config1:
         for line in config1:
             output.append(line)
-            if line in config2:
-                if is_section(config1, line):
-                    for conf_2_line in get_lines_in_section(config2, line):
-                        output.append(conf_2_line)
+            if line in config2 and is_section(config1, line):
+                for conf_2_line in get_lines_in_section(config2, line):
+                    output.append(conf_2_line)
         output.append("!")
     if config2:
         for line in config2:

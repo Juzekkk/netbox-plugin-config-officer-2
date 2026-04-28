@@ -1,6 +1,7 @@
 """REST API URLs for compliance."""
 
 from rest_framework import routers
+
 from .views import GlobalDataCollectionView
 
 router = routers.DefaultRouter()

@@ -14,15 +14,15 @@ from __future__ import annotations
 import ipaddress
 import logging
 import os
+import tempfile
 import time
 from datetime import datetime
 
+from dcim.models import Device
 from django.db.models import Q
 from django_rq import get_queue, job
 from git import GitCommandError, InvalidGitRepositoryError, NoSuchPathError, Repo
 from git.exc import GitCommandNotFound
-
-from dcim.models import Device
 
 from .choices import CollectFailChoices, CollectStatusChoices, ServiceComplianceChoices
 from .collector import CollectDeviceData
@@ -30,20 +30,20 @@ from .config import (
     CF_COLLECTION_STATUS,
     CONFIGS_PATH,
     CONFIGS_REPO_DIR,
-    GIT_REMOTE_ENABLED,
-    GIT_REMOTE_URL,
-    GIT_REMOTE_NAME,
-    GIT_REMOTE_BRANCH,
-    GIT_REMOTE_KEY,
-    GIT_AUTHOR,
     DEFAULT_PLATFORM,
+    GIT_AUTHOR,
+    GIT_REMOTE_BRANCH,
+    GIT_REMOTE_ENABLED,
+    GIT_REMOTE_KEY,
+    GIT_REMOTE_NAME,
+    GIT_REMOTE_URL,
     VOLATILE_LINE_PATTERNS_COMPILED,
 )
 from .config_manager import get_config_diff
 from .custom_exceptions import CollectionException
 from .git_manager import get_days_after_update, get_device_config
-from .models import Collection, Compliance, ServiceMapping
 from .git_utils import configure_safe_directory
+from .models import Collection, Compliance, ServiceMapping
 
 GLOBAL_TASK_INIT_MESSAGE: str = "global_collection_task"
 
@@ -71,18 +71,17 @@ def _prepare_ssh_key(key_path: str) -> str:
     The key mounted from Kubernetes secret may lack it due to AVP stripping
     trailing newlines from Vault values.
     """
-    import tempfile
     with open(key_path, "rb") as f:
         data = f.read()
     if not data.endswith(b"\n"):
         logger.info("[GIT] SSH key at %r missing trailing newline - adding it", key_path)
         data += b"\n"
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pem", mode="wb")
-    tmp.write(data)
-    tmp.close()
-    os.chmod(tmp.name, 0o600)
-    logger.info("[GIT] SSH key prepared at %r", tmp.name)
-    return tmp.name
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pem", mode="wb") as tmp:
+        tmp.write(data)
+        tmp.close()
+        os.chmod(tmp.name, 0o600)
+        logger.info("[GIT] SSH key prepared at %r", tmp.name)
+        return tmp.name
 
 
 def _get_ssh_env(key_path: str | None) -> dict[str, str]:
@@ -180,9 +179,7 @@ def _ensure_branch(repo: Repo) -> None:
         repo.git.checkout("-b", GIT_REMOTE_BRANCH, f"origin/{GIT_REMOTE_BRANCH}")
         logger.info("[GIT] Checked out branch '%s' from origin", GIT_REMOTE_BRANCH)
     except Exception:
-        logger.warning(
-            "[GIT] Remote branch '%s' not found - creating locally", GIT_REMOTE_BRANCH
-        )
+        logger.warning("[GIT] Remote branch '%s' not found - creating locally", GIT_REMOTE_BRANCH)
         repo.git.checkout("-b", GIT_REMOTE_BRANCH)
 
 
@@ -202,9 +199,7 @@ def _ensure_remote(repo: Repo) -> bool:
     else:
         remote = repo.remotes[GIT_REMOTE_NAME]
         if remote.url != GIT_REMOTE_URL:
-            logger.info(
-                "[GIT] Updating remote URL: %s -> %s", remote.url, GIT_REMOTE_URL
-            )
+            logger.info("[GIT] Updating remote URL: %s -> %s", remote.url, GIT_REMOTE_URL)
             remote.set_url(GIT_REMOTE_URL)
 
     return True
@@ -281,9 +276,7 @@ def _evaluate_staged_files(repo: Repo) -> tuple[list[str], list[str]]:
             continue
 
         if _strip_volatile_lines(new_text) == _strip_volatile_lines(old_text):
-            logger.debug(
-                "[GIT] %s - only timestamps changed, restoring from HEAD", path
-            )
+            logger.debug("[GIT] %s - only timestamps changed, restoring from HEAD", path)
             try:
                 repo.git.checkout("HEAD", "--", path)
                 timestamp_only.append(path)
@@ -321,9 +314,7 @@ def collect_device_config_hostname(hostname: str) -> None:
     """Trigger collection for a single device by hostname."""
     logger.info("[COLLECT] collect_device_config_hostname: %r", hostname)
     device = Device.objects.get(name__iexact=hostname)
-    collect_task = Collection.objects.create(
-        device=device, message="device collection task"
-    )
+    collect_task = Collection.objects.create(device=device, message="device collection task")
     commit_msg = f"device_{hostname}_{datetime.now().strftime('%Y_%m_%d_%H_%M_%S')}"
 
     get_queue("default").enqueue(
@@ -335,7 +326,7 @@ def collect_device_config_hostname(hostname: str) -> None:
 
 
 @job("default")
-def collect_device_config_task(task_id: int, commit_msg: str = "") -> str:
+def collect_device_config_task(task_id: int, commit_msg: str = "") -> str:  # noqa: PLR0915
     """Collect running config from a single device and persist results to NetBox."""
     logger.info("[COLLECT] Task start: task_id=%d commit=%r", task_id, commit_msg)
 
@@ -365,11 +356,7 @@ def collect_device_config_task(task_id: int, commit_msg: str = "") -> str:
     ip = "unknown"
 
     try:
-        platform = (
-            device_nb.platform.name
-            if device_nb.platform is not None
-            else DEFAULT_PLATFORM
-        )
+        platform = device_nb.platform.name if device_nb.platform is not None else DEFAULT_PLATFORM
         logger.debug("[COLLECT] Device=%s platform=%r", device_nb.name, platform)
 
         if not device_nb.primary_ip4:
@@ -427,16 +414,14 @@ def collect_device_config_task(task_id: int, commit_msg: str = "") -> str:
             device=device_nb,
         )
     except Exception:
-        logger.exception(
-            "[COLLECT] Failed to enqueue compliance check for %s", device_nb.name
-        )
+        logger.exception("[COLLECT] Failed to enqueue compliance check for %s", device_nb.name)
 
     _maybe_enqueue_commit()
     return f"{device_nb.name} {ip} collected"
 
 
 @job("default")
-def git_commit_configs_changes(msg: str) -> str:
+def git_commit_configs_changes(msg: str) -> str:  # noqa: PLR0911
     """
     Stage all changed configs and commit only if real config lines changed.
     Volatile timestamp-only changes are filtered out before committing.
@@ -531,9 +516,7 @@ def check_device_config_compliance(device: Device) -> dict:
         compliance.save()
         return {device: compliance.notes}
 
-    logger.debug(
-        "[COMPLIANCE] %s - matched: %s", device.name, [t.name for t in templates]
-    )
+    logger.debug("[COMPLIANCE] %s - matched: %s", device.name, [t.name for t in templates])
 
     device_config = get_device_config(CONFIGS_PATH, device.name, "running")
     if not device_config:
@@ -600,9 +583,7 @@ def collect_all_devices_configs() -> str:
     commit_msg = f"global_{datetime.now().strftime('%Y_%m_%d_%H_%M_%S')}"
 
     for device in devices:
-        collect_task = Collection.objects.create(
-            device=device, message=GLOBAL_TASK_INIT_MESSAGE
-        )
+        collect_task = Collection.objects.create(device=device, message=GLOBAL_TASK_INIT_MESSAGE)
         get_queue("default").enqueue(
             "config_officer.worker.collect_device_config_task",
             collect_task.pk,

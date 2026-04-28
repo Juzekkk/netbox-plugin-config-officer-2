@@ -1,25 +1,26 @@
 """Models for config_officer plugin."""
 
 from dataclasses import dataclass, field
-from django.db import models
-from django.utils import timezone
-from django.urls import reverse
-from django.db.models import Q
-from django.contrib.postgres.fields import ArrayField
-from dcim.models import Device
 
+from core.choices import JobStatusChoices
+from dcim.models import Device
+from django.contrib.postgres.fields import ArrayField
+from django.db import models
+from django.db.models import Q
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
+from django.urls import reverse
+from django.utils import timezone
 from netbox.models import NetBoxModel
 from netbox.models.features import JobsMixin
 
 from .choices import (
-    ServiceComplianceChoices,
     CollectFailChoices,
     CollectStatusChoices,
+    ServiceComplianceChoices,
 )
 from .config_manager import generate_templates_config_for_device
-from django.db.models.signals import post_delete
-from django.dispatch import receiver
-from core.choices import JobStatusChoices
+
 
 # --------------------------------------------------------------------------------------------------------------------------
 # Collection
@@ -146,15 +147,9 @@ class ServiceRule(models.Model):
     def matches_device(self, device):
         """Central matching logic (IMPORTANT FIX)."""
 
-        role_match = (
-            not self.device_role.exists()
-            or device.device_role in self.device_role.all()
-        )
+        role_match = not self.device_role.exists() or device.device_role in self.device_role.all()
 
-        type_match = (
-            not self.device_type.exists()
-            or device.device_type in self.device_type.all()
-        )
+        type_match = not self.device_type.exists() or device.device_type in self.device_type.all()
 
         return role_match and type_match
 
@@ -216,16 +211,13 @@ class Compliance(models.Model):
 
         for service in self.get_services():
             for rule in service.get_service_rules():
-                if rule.matches_device(self.device):
-                    if rule.template:
-                        templates.append(rule.template)
+                if rule.matches_device(self.device) and rule.template:
+                    templates.append(rule.template)
 
         return list(set(templates))
 
     def get_generated_config(self):
-        self.generated_config = generate_templates_config_for_device(
-            self.get_device_templates()
-        )
+        self.generated_config = generate_templates_config_for_device(self.get_device_templates())
         return self.generated_config
 
     def get_absolute_url(self):
@@ -310,10 +302,12 @@ def cancel_schedule_jobs(sender, instance, **kwargs):
     ).delete()
 
     import logging
+
     logger = logging.getLogger(__name__)
     logger.info(
         "[SCHEDULER] Cancelled %d scheduled job(s) for removed CollectSchedule pk=%d",
-        deleted, instance.pk,
+        deleted,
+        instance.pk,
     )
 
 

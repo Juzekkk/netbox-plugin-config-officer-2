@@ -1,8 +1,8 @@
 """Shared git utilities for config_officer."""
 
+import logging
 import os
 import tempfile
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +22,4 @@ def configure_safe_directory(repo_dir: str) -> None:
     os.environ["GIT_CONFIG_KEY_0"] = "safe.directory"
     os.environ["GIT_CONFIG_VALUE_0"] = repo_dir
 
-    logger.info(
-        "[GIT] safe.directory configured for %r via %r", repo_dir, cfg_path
-    )
+    logger.info("[GIT] safe.directory configured for %r via %r", repo_dir, cfg_path)

@@ -2,9 +2,10 @@
 Custom Exceptions used across the plugin
 """
 
+
 class CollectionException(Exception):
     def __init__(self, reason, message, **kwargs):
-        super(CollectionException, self).__init__(kwargs)
+        super().__init__(kwargs)
         self.reason = reason
         self.message = message
 

@@ -10,13 +10,12 @@ from __future__ import annotations
 import logging
 import re
 
-from django.db import transaction
-
 from dcim.choices import InterfaceTypeChoices
 from dcim.fields import mac_unix_expanded_uppercase
 from dcim.models import Interface, MACAddress
+from django.db import transaction
 from ipam.choices import IPAddressRoleChoices, IPAddressStatusChoices
-from ipam.models import IPAddress, VRF
+from ipam.models import VRF, IPAddress
 from netaddr import EUI
 
 from .models import ParsedInterface
@@ -97,9 +96,7 @@ def _attach_lags(device_netbox, parsed: dict[str, ParsedInterface]) -> None:
             logger.warning("[LAG] Member interface %r not found in NetBox", name)
             continue
         if not lag:
-            logger.warning(
-                "[LAG] LAG interface %r not found in NetBox (member=%s)", pif.lag, name
-            )
+            logger.warning("[LAG] LAG interface %r not found in NetBox (member=%s)", pif.lag, name)
             continue
 
         if member.lag_id != lag.pk:
@@ -123,9 +120,7 @@ def _assign_mac(iface: Interface, mac_str: str) -> None:
             mac_address=EUI(mac_str, version=48, dialect=mac_unix_expanded_uppercase)
         )
         conflict = (
-            Interface.objects.filter(primary_mac_address=mac_obj)
-            .exclude(pk=iface.pk)
-            .exists()
+            Interface.objects.filter(primary_mac_address=mac_obj).exclude(pk=iface.pk).exists()
         )
         if conflict:
             logger.warning(
@@ -152,9 +147,7 @@ def _sync_ips(device_netbox, iface: Interface, pif: ParsedInterface) -> None:
     candidates.extend((addr, True) for addr in pif.secondary)
 
     for addr, is_secondary in candidates:
-        logger.debug(
-            "[IP] %s: syncing %s (secondary=%s)", iface.name, addr, is_secondary
-        )
+        logger.debug("[IP] %s: syncing %s (secondary=%s)", iface.name, addr, is_secondary)
         try:
             ip_obj, created = IPAddress.objects.get_or_create(
                 address=addr,
@@ -251,9 +244,7 @@ def _update_existing_interface(iface: Interface, pif: ParsedInterface) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def sync_interfaces_to_netbox(
-    device_netbox, parsed: dict[str, ParsedInterface]
-) -> None:
+def sync_interfaces_to_netbox(device_netbox, parsed: dict[str, ParsedInterface]) -> None:
     """
     Create or update Interface objects in NetBox from *parsed* device data.
 

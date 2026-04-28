@@ -1,4 +1,5 @@
 from datetime import datetime
+
 from netbox.jobs import JobRunner
 
 
@@ -8,6 +9,7 @@ class CollectScheduleJob(JobRunner):
 
     def run(self, *args, **kwargs):
         from django_rq import get_queue
+
         from .models import Collection, CollectSchedule
         from .worker import collect_device_config_task
 

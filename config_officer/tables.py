@@ -1,11 +1,11 @@
 """Tables for config_officer plugin - NetBox 4.x compatible."""
 
 import django_tables2 as tables
-from netbox.tables import NetBoxTable, ToggleColumn, TagColumn
-from django_tables2.utils import Accessor
-
-from .models import Collection, Template, Service, ServiceRule, CollectSchedule
 from dcim.models import Device
+from django_tables2.utils import Accessor
+from netbox.tables import NetBoxTable, TagColumn, ToggleColumn
+
+from .models import Collection, CollectSchedule, Service, ServiceRule, Template
 
 # ---------------------------------------------------------------------------
 # Template columns (raw HTML rendered inside TemplateColumn)
@@ -155,9 +155,7 @@ class CollectionTable(tables.Table):
     pk = ToggleColumn()
     device = tables.Column(
         verbose_name="Hostname",
-        linkify=lambda record: (
-            record.device.get_absolute_url() if record.device else None
-        ),
+        linkify=lambda record: (record.device.get_absolute_url() if record.device else None),
     )
     status = tables.Column(verbose_name="Status")
     failed_reason = tables.Column(verbose_name="Failed Reason")
@@ -239,18 +237,10 @@ class ServiceListTable(tables.Table):
 
 class ServiceRuleListTable(tables.Table):
     pk = ToggleColumn()
-    service = tables.TemplateColumn(
-        template_code=RULE_SERVICE_LINK, verbose_name="Service"
-    )
-    device_role = tables.TemplateColumn(
-        template_code=DEVICE_ROLE, verbose_name="Device Role"
-    )
-    device_type = tables.TemplateColumn(
-        template_code=DEVICE_TYPE, verbose_name="Device Type"
-    )
-    template = tables.TemplateColumn(
-        template_code=RULE_TEMPLATE_LINK, verbose_name="Template"
-    )
+    service = tables.TemplateColumn(template_code=RULE_SERVICE_LINK, verbose_name="Service")
+    device_role = tables.TemplateColumn(template_code=DEVICE_ROLE, verbose_name="Device Role")
+    device_type = tables.TemplateColumn(template_code=DEVICE_TYPE, verbose_name="Device Type")
+    template = tables.TemplateColumn(template_code=RULE_TEMPLATE_LINK, verbose_name="Template")
     description = tables.Column(default="—")
     actions = tables.TemplateColumn(
         template_code=RULE_ACTIONS,

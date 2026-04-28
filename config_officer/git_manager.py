@@ -2,18 +2,18 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import time
 from datetime import datetime
 
-from git import NULL_TREE, GitCommandError, InvalidGitRepositoryError, Repo
+from git import NULL_TREE, InvalidGitRepositoryError, Repo
 from git.objects.commit import Commit
+
 from .config import (
     CONFIGS_REPO_DIR,
 )
 from .git_utils import configure_safe_directory
-
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -23,9 +23,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-def get_device_config(
-    directory: str, hostname: str, config_type: str = "running"
-) -> str | None:
+def get_device_config(directory: str, hostname: str, config_type: str = "running") -> str | None:
     """Return the text of a saved device config file, or None if absent."""
     path = os.path.join(directory, f"{hostname}_{config_type}.txt")
     try:
@@ -35,9 +33,7 @@ def get_device_config(
         return None
 
 
-def get_days_after_update(
-    directory: str, hostname: str, config_type: str = "running"
-) -> int:
+def get_days_after_update(directory: str, hostname: str, config_type: str = "running") -> int:
     """
     Return how many days ago the config file was last written.
     Returns -1 on any error (file missing, permission denied, …).
@@ -50,9 +46,7 @@ def get_days_after_update(
         return -1
 
 
-def get_config_update_date(
-    directory: str, hostname: str, config_type: str = "running"
-) -> str:
+def get_config_update_date(directory: str, hostname: str, config_type: str = "running") -> str:
     """Return a human-readable last-modified date for the config file."""
     path = os.path.join(directory, f"{hostname}_{config_type}.txt")
     try:
@@ -84,9 +78,7 @@ def _diff_for_commit(commit: Commit, filename: str) -> str:
         b_path = diff.b_path or ""
         if a_path.endswith(filename) or b_path.endswith(filename):
             if not diff.diff:
-                logger.warning(
-                    "[GIT] Empty patch for %s in %s", filename, commit.hexsha[:8]
-                )
+                logger.warning("[GIT] Empty patch for %s in %s", filename, commit.hexsha[:8])
                 return ""
             return diff.diff.decode("utf-8", errors="ignore")
 
@@ -124,9 +116,7 @@ def get_file_repo_state(repository_path: str, filename: str) -> dict:
 
     configure_safe_directory(CONFIGS_REPO_DIR)
 
-    logger.info(
-        "[GIT] get_file_repo_state: repo=%r file=%r", repository_path, filename
-    )
+    logger.info("[GIT] get_file_repo_state: repo=%r file=%r", repository_path, filename)
 
     try:
         try:
@@ -160,12 +150,8 @@ def get_file_repo_state(repository_path: str, filename: str) -> dict:
             repo_state["comment"] = f"no commits for {filename}"
             return repo_state
 
-        repo_state["first_commit_date"] = commits[0].committed_datetime.strftime(
-            "%d %b %Y %H:%M"
-        )
-        repo_state["last_commit_date"] = commits[-1].committed_datetime.strftime(
-            "%d %b %Y %H:%M"
-        )
+        repo_state["first_commit_date"] = commits[0].committed_datetime.strftime("%d %b %Y %H:%M")
+        repo_state["last_commit_date"] = commits[-1].committed_datetime.strftime("%d %b %Y %H:%M")
 
         for i, commit in enumerate(commits):
             logger.info(
@@ -190,9 +176,7 @@ def get_file_repo_state(repository_path: str, filename: str) -> dict:
                 }
             )
 
-        logger.info(
-            "[GIT] Repo state build complete (%d commits)", len(commits)
-        )
+        logger.info("[GIT] Repo state build complete (%d commits)", len(commits))
 
     except Exception:
         logger.exception("[GIT] Fatal error in get_file_repo_state")

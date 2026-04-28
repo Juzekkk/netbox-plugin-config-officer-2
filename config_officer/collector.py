@@ -10,7 +10,6 @@ import os
 import re
 import socket
 from datetime import datetime
-
 from zoneinfo import ZoneInfo
 
 from scrapli.driver.core import IOSXEDriver, IOSXRDriver, NXOSDriver
@@ -77,52 +76,38 @@ def sanitize_config(config_text: str) -> str:
         r"^\s*(?:{})\b".format("|".join(re.escape(p) for p in SENSITIVE_PREFIXES)),
         re.IGNORECASE,
     )
-    return "\n".join(
-        line for line in config_text.splitlines() if not pattern.match(line)
-    )
+    return "\n".join(line for line in config_text.splitlines() if not pattern.match(line))
 
 
-def _collect_iosxe(
-    conn, host_ip: str
-) -> tuple[ParsedDevice, dict[str, ParsedInterface]]:
+def _collect_iosxe(conn, host_ip: str) -> tuple[ParsedDevice, dict[str, ParsedInterface]]:
     device = IOSXEParser.parse_show_version(_send(conn, "show version"))
     ifaces: dict[str, ParsedInterface] = {}
 
     if COLLECT_INTERFACES_DATA:
-        ifaces = IOSXEParser.parse_show_interfaces(
-            _send(conn, "show interfaces"), host_ip
-        )
+        ifaces = IOSXEParser.parse_show_interfaces(_send(conn, "show interfaces"), host_ip)
         IOSXEParser.parse_show_ip_interface(_send(conn, "show ip interface"), ifaces)
         logger.info("[COLLECT][IOSXE] Parsed %d interfaces", len(ifaces))
 
     return device, ifaces
 
 
-def _collect_nxos(
-    conn, host_ip: str
-) -> tuple[ParsedDevice, dict[str, ParsedInterface]]:
+def _collect_nxos(conn, host_ip: str) -> tuple[ParsedDevice, dict[str, ParsedInterface]]:
     device = NXOSParser.parse_show_version(_send(conn, "show version"))
     ifaces: dict[str, ParsedInterface] = {}
 
     if COLLECT_INTERFACES_DATA:
-        ifaces = NXOSParser.parse_show_interfaces(
-            _send(conn, "show interface"), host_ip
-        )
+        ifaces = NXOSParser.parse_show_interfaces(_send(conn, "show interface"), host_ip)
         logger.info("[COLLECT][NXOS] Parsed %d interfaces", len(ifaces))
 
     return device, ifaces
 
 
-def _collect_iosxr(
-    conn, host_ip: str
-) -> tuple[ParsedDevice, dict[str, ParsedInterface]]:
+def _collect_iosxr(conn, host_ip: str) -> tuple[ParsedDevice, dict[str, ParsedInterface]]:
     device = IOSXEParser.parse_show_version(_send(conn, "show version"))
     ifaces: dict[str, ParsedInterface] = {}
 
     if COLLECT_INTERFACES_DATA:
-        ifaces = IOSXEParser.parse_show_interfaces(
-            _send(conn, "show interfaces"), host_ip
-        )
+        ifaces = IOSXEParser.parse_show_interfaces(_send(conn, "show interfaces"), host_ip)
         logger.info("[COLLECT][IOSXR] Parsed %d interfaces", len(ifaces))
 
     return device, ifaces
@@ -157,9 +142,7 @@ class CollectDeviceData:
     Connect to a device, collect its state, and persist results to NetBox.
     """
 
-    def __init__(
-        self, collect_task, ip: str = "", hostname_ipam: str = "", platform: str = ""
-    ):
+    def __init__(self, collect_task, ip: str = "", hostname_ipam: str = "", platform: str = ""):
         self.task = collect_task
         self.hostname_ipam = hostname_ipam.strip()
         self.platform = platform if platform in PLATFORMS else "iosxe"
@@ -194,9 +177,7 @@ class CollectDeviceData:
         host = self._base_kwargs["host"]
         timeout = self._base_kwargs["timeout_socket"]
 
-        logger.info(
-            "[REACH] Checking reachability of %s (timeout=%ds)", host, timeout
-        )
+        logger.info("[REACH] Checking reachability of %s (timeout=%ds)", host, timeout)
 
         last_error: Exception | None = None
         for port in (22, 23):
@@ -204,20 +185,14 @@ class CollectDeviceData:
                 with socket.create_connection((host, port), timeout=timeout):
                     logger.info("[REACH] Port %d is OPEN on %s - proceeding", port, host)
                     return
-            except socket.timeout:
-                logger.info(
-                    "[REACH] Port %d on %s: TIMEOUT after %ds", port, host, timeout
-                )
-                last_error = socket.timeout(f"timeout after {timeout}s")
+            except TimeoutError:
+                logger.info("[REACH] Port %d on %s: TIMEOUT after %ds", port, host, timeout)
+                last_error = TimeoutError(f"timeout after {timeout}s")
             except ConnectionRefusedError:
-                logger.info(
-                    "[REACH] Port %d on %s: CONNECTION REFUSED", port, host
-                )
+                logger.info("[REACH] Port %d on %s: CONNECTION REFUSED", port, host)
                 last_error = ConnectionRefusedError("connection refused")
             except OSError as e:
-                logger.info(
-                    "[REACH] Port %d on %s: OSError: %s", port, host, e
-                )
+                logger.info("[REACH] Port %d on %s: OSError: %s", port, host, e)
                 last_error = e
 
         logger.error(
@@ -277,7 +252,7 @@ class CollectDeviceData:
                 type(e).__name__,
                 e,
             )
-            raise CollectionException(
+            raise CollectionException from e(
                 reason=CollectFailChoices.FAIL_LOGIN,
                 message="Cannot login via SSH or Telnet",
             )
@@ -286,9 +261,7 @@ class CollectDeviceData:
         """Raise CollectionException if the collected serial doesn't match NetBox."""
         nb_sn = device_netbox.serial
         dev_sn = self._device.serial
-        logger.info(
-            "[SERIAL] NetBox serial=%r collected serial=%r", nb_sn, dev_sn
-        )
+        logger.info("[SERIAL] NetBox serial=%r collected serial=%r", nb_sn, dev_sn)
         if nb_sn and dev_sn and nb_sn != dev_sn:
             logger.error(
                 "[SERIAL] Mismatch for %r: NetBox=%r Device=%r",

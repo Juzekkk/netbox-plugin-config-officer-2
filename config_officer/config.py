@@ -4,6 +4,7 @@ Central configuration for config_officer plugin.
 
 import os
 import re
+
 from django.conf import settings
 
 _PS = settings.PLUGINS_CONFIG.get("config_officer", {})
@@ -89,9 +90,7 @@ SENSITIVE_PREFIXES_DEFAULT: tuple[str, ...] = (
     "key",
     "password",
 )
-SENSITIVE_PREFIXES: tuple[str, ...] = tuple(
-    _get("SENSITIVE_PREFIXES", SENSITIVE_PREFIXES_DEFAULT)
-)
+SENSITIVE_PREFIXES: tuple[str, ...] = tuple(_get("SENSITIVE_PREFIXES", SENSITIVE_PREFIXES_DEFAULT))
 
 VOLATILE_LINE_PATTERNS_DEFAULT = [
     r"^!Time:",

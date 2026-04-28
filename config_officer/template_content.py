@@ -7,9 +7,8 @@ The list must be named 'template_extensions'.
 IMPORTANT for NetBox 4.3+: use 'models' (plural list), NOT 'model' (singular string).
 """
 
+from django.urls import NoReverseMatch, reverse
 from django.utils.html import format_html
-from django.urls import reverse, NoReverseMatch
-
 from netbox.plugins import PluginTemplateExtension
 
 
