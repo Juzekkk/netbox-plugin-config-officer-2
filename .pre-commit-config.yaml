@@ -1,0 +1,64 @@
+repos:
+  # ---------------------------------------------------------------------------
+  # Built-in pre-commit hooks
+  # ---------------------------------------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace       # strip trailing whitespace
+      - id: end-of-file-fixer         # ensure files end with a newline
+      - id: check-yaml                # validate YAML syntax (including this file)
+      - id: check-toml                # validate pyproject.toml syntax
+      - id: check-merge-conflict      # detect unresolved merge conflict markers
+      - id: check-added-large-files   # block files larger than 500 kB
+        args: ["--maxkb=500"]
+      - id: debug-statements          # catch pdb / breakpoint() left in code
+      - id: mixed-line-ending         # enforce LF line endings (Unix)
+        args: ["--fix=lf"]
+
+  # ---------------------------------------------------------------------------
+  # Ruff - linter + formatter (replaces black, isort, and flake8 in one tool)
+  # ---------------------------------------------------------------------------
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.11.8
+    hooks:
+      - id: ruff                      # linter (equivalent of flake8 + isort + pylint)
+        args: ["--fix", "--exit-non-zero-on-fix"]
+        # --fix                  -> auto-fix everything that can be fixed
+        # --exit-non-zero-on-fix -> fail the commit when fixes were applied,
+        #                          forcing `git add` + re-check so no silently
+        #                          modified files slip through unstaged
+      - id: ruff-format               # formatter (equivalent of black)
+
+  # ---------------------------------------------------------------------------
+  # Conventional Commits - validate commit message format
+  # ---------------------------------------------------------------------------
+  - repo: https://github.com/commitizen-tools/commitizen
+    rev: v4.6.0
+    hooks:
+      - id: commitizen
+        stages: [commit-msg]          # runs on the commit-msg stage only
+        # Enforces the format:
+        #   <type>(<scope>): <subject>
+        # Valid types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert
+        # Examples:
+        #   feat(cisco-diff): add wildcard placeholder support
+        #   fix(compliance): handle empty config blocks
+        #   chore: bump ruff to 0.5
+
+  # ---------------------------------------------------------------------------
+  # Pytest - run only tests related to the changed files
+  # ---------------------------------------------------------------------------
+  - repo: local
+    hooks:
+      - id: pytest-changed
+        name: pytest (changed modules)
+        language: python
+        entry: python scripts/run_tests_for_changed.py
+        # The script resolves which test files correspond to the changed modules
+        # and runs only those, keeping pre-commit feedback fast.
+        pass_filenames: true          # pre-commit passes the list of staged files
+        types: [python]
+        stages: [pre-commit]
+        additional_dependencies:
+          - pytest
