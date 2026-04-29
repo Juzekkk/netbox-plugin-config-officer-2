@@ -81,4 +81,9 @@ urlpatterns = [
         views.CollectScheduleJobsView.as_view(),
         name="collectschedule_jobs",
     ),
+    path(
+        "running_config/<str:hostname>/status/<str:config_job_id>/<str:repo_job_id>/",
+        views.running_config_status,
+        name="running_config_status",
+    ),
 ]

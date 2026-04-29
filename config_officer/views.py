@@ -9,20 +9,22 @@ from dcim.models import Device
 from django.contrib import messages
 from django.contrib.auth.mixins import PermissionRequiredMixin
 from django.db.models import Q
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views import View
-from django_rq import get_queue
+from django_rq import get_connection, get_queue
 from netbox.views.generic import (
     ObjectDeleteView,
     ObjectEditView,
     ObjectJobsView,
     ObjectListView,
 )
+from rq.exception import NoSuchJobError
+from rq.job import Job
 
 from .choices import CollectStatusChoices
-from .config import CONFIGS_PATH, CONFIGS_REPO_DIR, CONFIGS_SUBPATH, TIME_ZONE
+from .config import CONFIGS_PATH, TIME_ZONE
 from .filters import CollectionFilter, ServiceMappingFilter
 from .forms import (
     CollectionFilterForm,
@@ -37,7 +39,6 @@ from .forms import (
 from .git_manager import (
     get_config_update_date,
     get_device_config,
-    get_device_file_repo_state,
 )
 from .models import (
     Collection,
@@ -472,22 +473,77 @@ class ServiceDetach(PermissionRequiredMixin, View):
 
 
 def running_config(request, hostname):
-    """Show device running-config page - called via NetBox Custom Link."""
-    running = get_device_config(CONFIGS_PATH, hostname, "running")
+    """Enqueue jobs and return page immediately with loading state."""
+    queue = get_queue("default")
 
-    message: dict = {}
-    if not running:
-        message["status"] = False
-        message["comment"] = "Error reading running config file from directory."
-    else:
-        message["status"] = True
-        message["running_config"] = running
-
-    message["repo_state"] = get_device_file_repo_state(
-        CONFIGS_REPO_DIR, CONFIGS_SUBPATH, hostname, "running"
+    config_job = queue.enqueue(
+        "config_officer.worker.get_device_running_config",
+        hostname,
+    )
+    repo_job = queue.enqueue(
+        "config_officer.worker.get_device_repo_state",
+        hostname,
     )
 
-    return render(request, "config_officer/device_running_config.html", {"message": message})
+    return render(
+        request,
+        "config_officer/device_running_config.html",
+        {
+            "hostname": hostname,
+            "config_job_id": config_job.id,
+            "repo_job_id": repo_job.id,
+        },
+    )
+
+
+def running_config_status(request, config_job_id, repo_job_id):
+    """Poll endpoint - returns JSON with job results when ready."""
+    connection = get_connection("default")
+
+    try:
+        config_job = Job.fetch(config_job_id, connection=connection)
+        repo_job = Job.fetch(repo_job_id, connection=connection)
+    except NoSuchJobError as e:
+        return JsonResponse({"error": str(e)}, status=404)
+
+    if not config_job.is_finished or not repo_job.is_finished:
+        failed = config_job.is_failed or repo_job.is_failed
+        return JsonResponse(
+            {
+                "ready": False,
+                "failed": failed,
+            }
+        )
+
+    running = config_job.result
+    repo_state = repo_job.result or {}
+
+    # Serialize commits — datetime not JSON serializable
+    commits = []
+    for c in repo_state.get("commits", []):
+        commits.append(
+            {
+                "hash": c["hash"],
+                "msg": c["msg"],
+                "diff": c["diff"],
+                "date": c["date"].strftime("%Y-%m-%d %H:%M") if c.get("date") else "",
+            }
+        )
+
+    return JsonResponse(
+        {
+            "ready": True,
+            "running_config": running,
+            "repo_state": {
+                "commits_count": repo_state.get("commits_count", 0),
+                "commits": commits,
+                "first_commit_date": repo_state.get("first_commit_date", ""),
+                "last_commit_date": repo_state.get("last_commit_date", ""),
+                "error": repo_state.get("error", ""),
+                "comment": repo_state.get("comment", ""),
+            },
+        }
+    )
 
 
 # ---------------------------------------------------------------------------

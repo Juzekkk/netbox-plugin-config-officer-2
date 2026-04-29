@@ -30,6 +30,7 @@ from .config import (
     CF_COLLECTION_STATUS,
     CONFIGS_PATH,
     CONFIGS_REPO_DIR,
+    CONFIGS_SUBPATH,
     DEFAULT_PLATFORM,
     GIT_AUTHOR,
     GIT_REMOTE_BRANCH,
@@ -41,7 +42,7 @@ from .config import (
 )
 from .config_manager import get_config_diff
 from .custom_exceptions import CollectionException
-from .git_manager import get_days_after_update, get_device_config
+from .git_manager import get_days_after_update, get_device_config, get_device_file_repo_state
 from .git_utils import configure_safe_directory
 from .models import Collection, Compliance, ServiceMapping
 
@@ -650,3 +651,17 @@ def collect_all_devices_configs() -> str:
 
     logger.info("[COLLECT] Enqueued %d tasks, commit=%r", len(devices), commit_msg)
     return f"queued {len(devices)} devices"
+
+
+@job("default")
+def get_device_running_config(hostname: str) -> str | None:
+    """Return running config text for hostname, read by worker from its local fs."""
+    configure_safe_directory(CONFIGS_REPO_DIR, GIT_AUTHOR)
+    return get_device_config(CONFIGS_PATH, hostname, "running")
+
+
+@job("default")
+def get_device_repo_state(hostname: str) -> dict:
+    """Return git repo state for hostname, read by worker from its local repo."""
+    configure_safe_directory(CONFIGS_REPO_DIR, GIT_AUTHOR)
+    return get_device_file_repo_state(CONFIGS_REPO_DIR, CONFIGS_SUBPATH, hostname, "running")
