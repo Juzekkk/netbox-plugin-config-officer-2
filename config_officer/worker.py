@@ -207,19 +207,35 @@ def _ensure_remote(repo: Repo) -> bool:
 
 def _initial_pull(repo: Repo) -> None:
     """
-    On first repo init: pull remote history so we can push later without conflict.
-    Fails silently if the remote is empty (legitimate on first use).
+    On first repo init: fetch remote history and reset local branch to match.
+    Uses fetch + reset instead of pull to cleanly handle untracked local files.
     """
     if not GIT_REMOTE_ENABLED or not GIT_REMOTE_URL:
         return
     _apply_ssh_env(GIT_REMOTE_KEY)
     try:
-        repo.remotes[GIT_REMOTE_NAME].pull(GIT_REMOTE_BRANCH)
-        logger.info("[GIT] Initial pull complete")
+        logger.info("[GIT] Fetching from remote %r", GIT_REMOTE_NAME)
+        repo.remotes[GIT_REMOTE_NAME].fetch()
+        logger.info("[GIT] Fetch complete")
+
+        remote_branch = f"{GIT_REMOTE_NAME}/{GIT_REMOTE_BRANCH}"
+        remote_refs = [r.name for r in repo.remotes[GIT_REMOTE_NAME].refs]
+        logger.info("[GIT] Remote refs: %s", remote_refs)
+
+        if GIT_REMOTE_BRANCH in remote_refs:
+            logger.info("[GIT] Checking out remote branch %r", GIT_REMOTE_BRANCH)
+            repo.git.checkout("-B", GIT_REMOTE_BRANCH, remote_branch)
+            logger.info("[GIT] Reset to remote branch complete")
+        else:
+            logger.info(
+                "[GIT] Remote branch %r not found - will create on first push",
+                GIT_REMOTE_BRANCH,
+            )
+
     except GitCommandError as exc:
-        logger.warning("[GIT] Initial pull failed (remote may be empty): %s", exc)
+        logger.warning("[GIT] Initial fetch failed: %s", exc)
     except Exception:
-        logger.exception("[GIT] Unexpected error during initial pull")
+        logger.exception("[GIT] Unexpected error during initial fetch")
 
 
 def _push_to_remote(repo: Repo) -> str:
