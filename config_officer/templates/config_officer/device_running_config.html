@@ -62,7 +62,7 @@
 </div>
 
 <script>
-const STATUS_URL = "{% url 'plugins:config_officer:running_config_status' config_job_id=config_job_id repo_job_id=repo_job_id %}";
+const STATUS_URL = "{% url 'plugins:config_officer:running_config_status' hostname=hostname config_job_id=config_job_id repo_job_id=repo_job_id %}";
 const POLL_INTERVAL = 1000;
 const MAX_POLLS = 60;
 let polls = 0;
