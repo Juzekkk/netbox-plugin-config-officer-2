@@ -20,7 +20,7 @@ from netbox.views.generic import (
     ObjectJobsView,
     ObjectListView,
 )
-from rq.exception import NoSuchJobError
+from rq.exceptions import NoSuchJobError
 from rq.job import Job
 
 from .choices import CollectStatusChoices
