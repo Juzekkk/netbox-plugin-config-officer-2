@@ -306,6 +306,61 @@ def _make_initial_commit(repo: Repo, msg: str, has_remote: bool) -> str:
     return "initial commit"
 
 
+def _ensure_repo_ready() -> None:
+    """
+    Ensure the local git repo exists, is on the correct branch,
+    and is up to date with remote. Called before each collect task.
+    """
+    configure_safe_directory(CONFIGS_REPO_DIR, GIT_AUTHOR)
+
+    logger.info("[GIT] Ensuring repo is ready at %r", CONFIGS_REPO_DIR)
+
+    try:
+        try:
+            repo = Repo(CONFIGS_REPO_DIR)
+            logger.info("[GIT] Repo exists at %r", CONFIGS_REPO_DIR)
+        except (InvalidGitRepositoryError, NoSuchPathError):
+            logger.info("[GIT] Initialising new repo at %r", CONFIGS_REPO_DIR)
+            os.makedirs(CONFIGS_PATH, exist_ok=True)
+            repo = Repo.init(CONFIGS_REPO_DIR)
+
+        _ensure_remote(repo)
+
+        if not GIT_REMOTE_ENABLED or not GIT_REMOTE_URL:
+            logger.info("[GIT] Remote disabled - skipping fetch")
+            if not repo.head.is_valid():
+                _ensure_branch(repo)
+            return
+
+        _apply_ssh_env(GIT_REMOTE_KEY)
+
+        logger.info("[GIT] Fetching from remote %r", GIT_REMOTE_NAME)
+        repo.remotes[GIT_REMOTE_NAME].fetch()
+        logger.info("[GIT] Fetch complete")
+
+        remote_refs = [r.name for r in repo.remotes[GIT_REMOTE_NAME].refs]
+        target = f"{GIT_REMOTE_NAME}/{GIT_REMOTE_BRANCH}"
+
+        if target in remote_refs:
+            logger.info("[GIT] Checking out %r from remote", GIT_REMOTE_BRANCH)
+            repo.git.checkout("-B", GIT_REMOTE_BRANCH, target)
+            logger.info(
+                "[GIT] Now on branch %r at HEAD=%s",
+                GIT_REMOTE_BRANCH,
+                repo.head.commit.hexsha[:8],
+            )
+        else:
+            logger.info(
+                "[GIT] Remote branch %r not found - ensuring local branch", GIT_REMOTE_BRANCH
+            )
+            _ensure_branch(repo)
+
+    except GitCommandError as exc:
+        logger.warning("[GIT] _ensure_repo_ready failed: %s - continuing anyway", exc)
+    except Exception:
+        logger.exception("[GIT] Unexpected error in _ensure_repo_ready - continuing anyway")
+
+
 # ---------------------------------------------------------------------------
 # RQ jobs
 # ---------------------------------------------------------------------------
@@ -369,6 +424,9 @@ def collect_device_config_task(task_id: int, commit_msg: str = "") -> str:  # no
 
         ip = str(ipaddress.ip_interface(device_nb.primary_ip4).ip)
         logger.debug("[COLLECT] Primary IP: %s", ip)
+
+        # Ensure git repo is ready and up to date before collecting
+        _ensure_repo_ready()
 
         # Mark in-progress *before* the potentially-long SSH session
         _set_collection_status(device_nb, False)
@@ -449,9 +507,6 @@ def git_commit_configs_changes(msg: str) -> str:  # noqa: PLR0911
 
         repo, is_new = _open_or_init_repo()
         has_remote = _ensure_remote(repo)
-
-        if is_new and has_remote:
-            _initial_pull(repo)
 
         _ensure_branch(repo)
 
