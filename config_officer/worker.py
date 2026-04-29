@@ -74,14 +74,13 @@ def _prepare_ssh_key(key_path: str) -> str:
     with open(key_path, "rb") as f:
         data = f.read()
     if not data.endswith(b"\n"):
-        logger.info("[GIT] SSH key at %r missing trailing newline - adding it", key_path)
+        logger.info("[GIT] Adding trailing newline to SSH key")
         data += b"\n"
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".pem", mode="wb") as tmp:
-        tmp.write(data)
-        tmp.close()
-        os.chmod(tmp.name, 0o600)
-        logger.info("[GIT] SSH key prepared at %r", tmp.name)
-        return tmp.name
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pem", mode="wb")  # noqa: SIM115
+    tmp.write(data)
+    tmp.close()
+    os.chmod(tmp.name, 0o600)
+    return tmp.name
 
 
 def _get_ssh_env(key_path: str | None) -> dict[str, str]:
@@ -90,7 +89,6 @@ def _get_ssh_env(key_path: str | None) -> dict[str, str]:
     Returns an empty dict when no key is configured.
     """
     if not key_path:
-        logger.debug("[GIT] No SSH key configured - skipping GIT_SSH_COMMAND")
         return {}
     prepared_key = _prepare_ssh_key(key_path)
     cmd = (
@@ -138,25 +136,21 @@ def _open_or_init_repo() -> tuple[Repo, bool]:
     logger.info("[GIT] Opening repo at %r", CONFIGS_REPO_DIR)
     try:
         repo = Repo(CONFIGS_REPO_DIR)
+        is_new = not repo.head.is_valid()
         sha = repo.head.commit.hexsha[:8] if repo.head.is_valid() else "none"
         logger.info(
-            "[GIT] Opened existing repo at %r (HEAD=%s, branch=%s)",
-            CONFIGS_REPO_DIR,
-            sha,
-            repo.active_branch.name if not repo.head.is_detached else "detached",
+            "[GIT] Opened existing repo at %r (HEAD=%s, is_new=%s)", CONFIGS_REPO_DIR, sha, is_new
         )
-        return repo, False
+        return repo, is_new
     except InvalidGitRepositoryError:
-        logger.info("[GIT] No valid repo at %r - initialising", CONFIGS_REPO_DIR)
+        logger.info("[GIT] No valid repo - initialising")
         os.makedirs(CONFIGS_PATH, exist_ok=True)
         repo = Repo.init(CONFIGS_REPO_DIR)
-        logger.info("[GIT] Initialised new repo at %r", CONFIGS_REPO_DIR)
         return repo, True
     except NoSuchPathError:
-        logger.info("[GIT] Path %r does not exist - creating and initialising", CONFIGS_REPO_DIR)
+        logger.info("[GIT] Path does not exist - creating and initialising")
         os.makedirs(CONFIGS_PATH, exist_ok=True)
         repo = Repo.init(CONFIGS_REPO_DIR)
-        logger.info("[GIT] Initialised new repo at %r", CONFIGS_REPO_DIR)
         return repo, True
 
 
@@ -189,19 +183,11 @@ def _ensure_remote(repo: Repo) -> bool:
     Returns True when a remote is present and push is enabled.
     """
     if not GIT_REMOTE_ENABLED or not GIT_REMOTE_URL:
-        logger.debug("[GIT] Remote push disabled or not configured")
         return False
-
     remote_names = [r.name for r in repo.remotes]
     if GIT_REMOTE_NAME not in remote_names:
         logger.info("[GIT] Adding remote %r -> %s", GIT_REMOTE_NAME, GIT_REMOTE_URL)
         repo.create_remote(GIT_REMOTE_NAME, GIT_REMOTE_URL)
-    else:
-        remote = repo.remotes[GIT_REMOTE_NAME]
-        if remote.url != GIT_REMOTE_URL:
-            logger.info("[GIT] Updating remote URL: %s -> %s", remote.url, GIT_REMOTE_URL)
-            remote.set_url(GIT_REMOTE_URL)
-
     return True
 
 
@@ -217,21 +203,16 @@ def _initial_pull(repo: Repo) -> None:
         logger.info("[GIT] Fetching from remote %r", GIT_REMOTE_NAME)
         repo.remotes[GIT_REMOTE_NAME].fetch()
         logger.info("[GIT] Fetch complete")
-
-        remote_branch = f"{GIT_REMOTE_NAME}/{GIT_REMOTE_BRANCH}"
         remote_refs = [r.name for r in repo.remotes[GIT_REMOTE_NAME].refs]
         logger.info("[GIT] Remote refs: %s", remote_refs)
-
-        if GIT_REMOTE_BRANCH in remote_refs:
+        if f"{GIT_REMOTE_NAME}/{GIT_REMOTE_BRANCH}" in remote_refs:
             logger.info("[GIT] Checking out remote branch %r", GIT_REMOTE_BRANCH)
-            repo.git.checkout("-B", GIT_REMOTE_BRANCH, remote_branch)
+            repo.git.checkout("-B", GIT_REMOTE_BRANCH, f"{GIT_REMOTE_NAME}/{GIT_REMOTE_BRANCH}")
             logger.info("[GIT] Reset to remote branch complete")
         else:
             logger.info(
-                "[GIT] Remote branch %r not found - will create on first push",
-                GIT_REMOTE_BRANCH,
+                "[GIT] Remote branch %r not found - will create on first push", GIT_REMOTE_BRANCH
             )
-
     except GitCommandError as exc:
         logger.warning("[GIT] Initial fetch failed: %s", exc)
     except Exception:
@@ -309,14 +290,19 @@ def _evaluate_staged_files(repo: Repo) -> tuple[list[str], list[str]]:
 def _make_initial_commit(repo: Repo, msg: str, has_remote: bool) -> str:
     """Commit everything in a brand-new repo and optionally push."""
     repo.git.add("--all")
-    if not repo.untracked_files:
+    staged = repo.git.diff("--cached", "--name-only")
+    logger.info("[GIT] Initial commit staged files: %r", staged)
+    if not staged:
+        logger.info("[GIT] Nothing staged")
         return "initial: nothing to commit"
-
     repo.git.commit("-m", msg, author=GIT_AUTHOR)
     logger.info("[GIT] Initial commit done")
-
     if has_remote:
-        _push_to_remote(repo)
+        _apply_ssh_env(GIT_REMOTE_KEY)
+        results = repo.remotes[GIT_REMOTE_NAME].push(GIT_REMOTE_BRANCH)
+        for info in results:
+            logger.info("[GIT] Push: flags=%s summary=%r", info.flags, info.summary.strip())
+        return "initial commit+pushed"
     return "initial commit"
 
 
