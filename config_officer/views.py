@@ -496,7 +496,7 @@ def running_config(request, hostname):
     )
 
 
-def running_config_status(request, config_job_id, repo_job_id):
+def running_config_status(request, hostname, config_job_id, repo_job_id):
     """Poll endpoint - returns JSON with job results when ready."""
     connection = get_connection("default")
 
