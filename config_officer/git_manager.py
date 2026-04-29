@@ -10,9 +10,7 @@ from datetime import datetime
 from git import NULL_TREE, InvalidGitRepositoryError, Repo
 from git.objects.commit import Commit
 
-from .config import (
-    CONFIGS_REPO_DIR,
-)
+from .config import CONFIGS_REPO_DIR, GIT_AUTHOR
 from .git_utils import configure_safe_directory
 
 logger = logging.getLogger(__name__)
@@ -114,7 +112,7 @@ def get_file_repo_state(repository_path: str, filename: str) -> dict:
     """
     repo_state: dict = {"commits_count": 0, "commits": []}
 
-    configure_safe_directory(CONFIGS_REPO_DIR)
+    configure_safe_directory(CONFIGS_REPO_DIR, GIT_AUTHOR)
 
     logger.info("[GIT] get_file_repo_state: repo=%r file=%r", repository_path, filename)
 

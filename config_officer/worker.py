@@ -443,7 +443,7 @@ def git_commit_configs_changes(msg: str) -> str:  # noqa: PLR0911
         return "deferred: active collect tasks"
 
     try:
-        configure_safe_directory(CONFIGS_REPO_DIR)
+        configure_safe_directory(CONFIGS_REPO_DIR, GIT_AUTHOR)
 
         repo, is_new = _open_or_init_repo()
         has_remote = _ensure_remote(repo)
