@@ -18,6 +18,7 @@ from ipam.choices import IPAddressRoleChoices, IPAddressStatusChoices
 from ipam.models import VRF, IPAddress
 from netaddr import EUI
 
+from .config import COLLECT_PORT_CHANNEL_DATA
 from .models import ParsedInterface
 
 logger = logging.getLogger(__name__)
@@ -264,7 +265,10 @@ def sync_interfaces_to_netbox(device_netbox, parsed: dict[str, ParsedInterface])
     }
 
     for name, pif in parsed.items():
+        # TODO: handle vlans
         if name.lower().startswith("vlan"):
+            continue
+        if name.lower().startswith("port-channel") and not COLLECT_PORT_CHANNEL_DATA:
             continue
 
         logger.debug(

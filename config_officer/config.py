@@ -46,7 +46,6 @@ CF_SW_VERSION: str = _get("CF_NAME_SW_VERSION", "version")
 CF_SSH: str = _get("CF_NAME_SSH", "ssh")
 CF_LAST_COLLECT_DATE: str = _get("CF_NAME_LAST_COLLECT_DATE", "last_collect_date")
 CF_LAST_COLLECT_TIME: str = _get("CF_NAME_LAST_COLLECT_TIME", "last_collect_time")
-CF_COLLECTION_STATUS: str = _get("CF_NAME_COLLECTION_STATUS", "collection_status")
 
 # Storage
 CONFIGS_REPO_DIR: str = _get("NETBOX_DEVICES_CONFIGS_REPO_DIR", "/device_configs")
@@ -74,6 +73,7 @@ GIT_AUTHOR: str = _get_remote("AUTHOR", "Netbox <netbox@example.com>")
 
 # Feature flags
 COLLECT_INTERFACES_DATA: bool = _get_bool("COLLECT_INTERFACES_DATA", True)
+COLLECT_PORT_CHANNEL_DATA: bool = _get_bool("COLLECT_PORT_CHANNEL_DATA", True)
 
 # Timezone
 TIME_ZONE: str = os.environ.get("TIME_ZONE", "UTC")

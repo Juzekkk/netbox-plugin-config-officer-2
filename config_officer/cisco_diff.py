@@ -24,7 +24,7 @@ _COMMENT_OR_EMPTY = re.compile(r"^\s*(!|$|\^C?$)")
 
 
 def _load(data: list[str] | str) -> list[str]:
-    """Accept a list of lines or a file path; return a list of stripped lines."""
+    """Accept a list of lines or a file path; return a list of split lines."""
     if isinstance(data, list):
         return data
     path = Path(data)
@@ -33,7 +33,8 @@ def _load(data: list[str] | str) -> list[str]:
     return path.read_text(encoding="utf-8").splitlines()
 
 
-def _valid(line: str) -> bool:
+def _valid_line(line: str) -> bool:
+    """Return True if line is not comment or empty"""
     return not _COMMENT_OR_EMPTY.match(line)
 
 
@@ -68,7 +69,7 @@ class Config:
         ignore_lines: list[str] | str | None = None,
     ) -> None:
         raw = _load(data)
-        self._lines = [line.rstrip() for line in raw if _valid(line)]
+        self._lines = [line.rstrip() for line in raw if _valid_line(line)]
 
         if ignore_lines is None:
             self._ignores: list[str] = []
@@ -82,7 +83,7 @@ class Config:
     # ------------------------------------------------------------------
 
     def _groups(self) -> list[list[str]]:
-        """Split config into parent+children groups (child lines start with space)."""
+        """Split config into parent+children groups sorted by parent (child lines start with space)."""
         groups: list[list[str]] = []
         current: list[str] = []
         for line in self._lines:

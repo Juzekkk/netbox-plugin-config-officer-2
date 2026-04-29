@@ -27,7 +27,6 @@ from git.exc import GitCommandNotFound
 from .choices import CollectFailChoices, CollectStatusChoices, ServiceComplianceChoices
 from .collector import CollectDeviceData
 from .config import (
-    CF_COLLECTION_STATUS,
     CONFIGS_PATH,
     CONFIGS_REPO_DIR,
     CONFIGS_SUBPATH,
@@ -115,12 +114,6 @@ def get_active_collect_task_count() -> int:
         | Q(status__iexact=CollectStatusChoices.STATUS_RUNNING),
         message__iexact=GLOBAL_TASK_INIT_MESSAGE,
     ).count()
-
-
-def _set_collection_status(device_nb, value: bool) -> None:
-    """Persist the collection-status custom field for *device_nb*."""
-    device_nb.custom_field_data[CF_COLLECTION_STATUS] = value
-    device_nb.save()
 
 
 # ---------------------------------------------------------------------------
@@ -429,9 +422,6 @@ def collect_device_config_task(task_id: int, commit_msg: str = "") -> str:  # no
         # Ensure git repo is ready and up to date before collecting
         _ensure_repo_ready()
 
-        # Mark in-progress *before* the potentially-long SSH session
-        _set_collection_status(device_nb, False)
-
         CollectDeviceData(
             collect_task,
             ip=ip,
@@ -466,7 +456,6 @@ def collect_device_config_task(task_id: int, commit_msg: str = "") -> str:  # no
     # Success path
     collect_task.status = CollectStatusChoices.STATUS_SUCCEEDED
     collect_task.save()
-    _set_collection_status(device_nb, True)
     logger.info("[COLLECT] SUCCESS: %s (%s)", device_nb.name, ip)
 
     try:

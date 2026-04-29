@@ -1,15 +1,16 @@
-"""Plugin template extensions - injects buttons into the Device detail page.
+"""
+Plugin template extensions - injects buttons into the Device detail page.
 
 NetBox looks for this file as 'template_content.py' by default
 (DEFAULT_RESOURCE_PATHS['template_extensions'] = 'template_content.template_extensions').
 The list must be named 'template_extensions'.
-
-IMPORTANT for NetBox 4.3+: use 'models' (plural list), NOT 'model' (singular string).
 """
 
 from django.urls import NoReverseMatch, reverse
 from django.utils.html import format_html
 from netbox.plugins import PluginTemplateExtension
+
+from .models import Compliance
 
 
 class DeviceConfigButtons(PluginTemplateExtension):
@@ -36,8 +37,6 @@ class DeviceConfigButtons(PluginTemplateExtension):
         # Compliance button only if a Compliance record exists
         compliance_html = ""
         try:
-            from .models import Compliance
-
             if Compliance.objects.filter(device=device).exists():
                 compliance_url = reverse(
                     "plugins:config_officer:compliance",

@@ -9,6 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 def configure_safe_directory(repo_dir: str, author: str = "") -> None:
+    """Configure git safe directory and set necessary env vars"""
     match = re.match(r"^(.+?)\s+<(.+?)>$", author) if author else None
     name = match.group(1) if match else "Netbox"
     email = match.group(2) if match else "netbox@example.com"

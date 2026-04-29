@@ -1,6 +1,10 @@
 from datetime import datetime
 
+from django_rq import get_queue
 from netbox.jobs import JobRunner
+
+from .models import Collection, CollectSchedule
+from .worker import collect_device_config_task
 
 
 class CollectScheduleJob(JobRunner):
@@ -8,16 +12,11 @@ class CollectScheduleJob(JobRunner):
         name = "Config Officer - Collect Schedule"
 
     def run(self, *args, **kwargs):
-        from django_rq import get_queue
-
-        from .models import Collection, CollectSchedule
-        from .worker import collect_device_config_task
-
         try:
             schedule = CollectSchedule.objects.get(pk=self.job.object_id)
         except CollectSchedule.DoesNotExist:
             self.logger.warning(
-                f"CollectSchedule (pk={self.job.object_id}) no longer exists – skipping"
+                f"CollectSchedule (pk={self.job.object_id}) no longer exists - skipping"
             )
             return
 

@@ -4,7 +4,6 @@ Device configuration collector for config_officer plugin.
 
 from __future__ import annotations
 
-import importlib.util
 import logging
 import os
 import re
@@ -16,7 +15,6 @@ from scrapli.driver.core import IOSXEDriver, IOSXRDriver, NXOSDriver
 
 from .choices import CollectFailChoices
 from .config import (
-    CF_COLLECTION_STATUS,
     CF_LAST_COLLECT_DATE,
     CF_LAST_COLLECT_TIME,
     CF_SSH,
@@ -127,11 +125,6 @@ def _send(conn, cmd: str) -> str:
     return result
 
 
-def _ssh_config_path() -> str:
-    pkg_origin = importlib.util.find_spec("config_officer").origin
-    return os.path.join(os.path.dirname(pkg_origin), "ssh_config")
-
-
 # ---------------------------------------------------------------------------
 # Main collector
 # ---------------------------------------------------------------------------
@@ -157,7 +150,6 @@ class CollectDeviceData:
             "port": port,
             "timeout_socket": 20,
             "timeout_ops": 60,
-            "ssh_config_file": _ssh_config_path(),
         }
 
         self._device: ParsedDevice = ParsedDevice()
@@ -165,15 +157,15 @@ class CollectDeviceData:
         self._used_kwargs: dict = {}
 
         logger.info(
-            "[COLLECT] Initialized: %r host=%s platform=%s port=%d ssh_config=%s",
+            "[COLLECT] Initialized: %r host=%s platform=%s port=%d",
             self.hostname_ipam,
             ip,
             self.platform,
             port,
-            _ssh_config_path(),
         )
 
     def _check_reachability(self) -> None:
+        """Try SSH, fall back to Telnet. Raises CollectionException on total failure."""
         host = self._base_kwargs["host"]
         timeout = self._base_kwargs["timeout_socket"]
 
@@ -206,7 +198,7 @@ class CollectDeviceData:
         )
 
     def _connect_and_collect(self) -> None:
-        """Try SSH, fall back to Telnet. Raises CollectionException on total failure."""
+        """Connect to device and collect the data. Raises CollectionException on total failure."""
         host = self._base_kwargs["host"]
         port = self._base_kwargs["port"]
         driver = PLATFORMS[self.platform]
@@ -258,7 +250,10 @@ class CollectDeviceData:
             )
 
     def _check_serial_match(self, device_netbox) -> None:
-        """Raise CollectionException if the collected serial doesn't match NetBox."""
+        """
+        Raise CollectionException if the collected serial doesn't match NetBox.
+        Does nothing it serial if serial is not defined in NetBox.
+        """
         nb_sn = device_netbox.serial
         dev_sn = self._device.serial
         logger.info("[SERIAL] NetBox serial=%r collected serial=%r", nb_sn, dev_sn)
@@ -276,12 +271,12 @@ class CollectDeviceData:
         logger.info("[SERIAL] Serial check passed for %r", self.hostname_ipam)
 
     def _update_custom_fields(self, device_netbox) -> None:
+        """Update optional, custom fileds."""
         tz = ZoneInfo(TIME_ZONE)
         now = datetime.now(tz)
         port = self._used_kwargs.get("port", self._base_kwargs["port"])
 
         fields = {
-            CF_COLLECTION_STATUS: "temporary value",
             CF_SSH: port == 22,
             CF_SW_VERSION: self._device.version.upper() if self._device.version else "",
             CF_LAST_COLLECT_DATE: now.date(),
@@ -297,6 +292,10 @@ class CollectDeviceData:
         logger.info("[CF] Custom fields saved for %r", self.hostname_ipam)
 
     def _save_running_config(self) -> None:
+        """
+        Collects running-config from device.
+        Saves running-config to file in configs path.
+        """
         os.makedirs(CONFIGS_PATH, exist_ok=True)
         filename = os.path.join(CONFIGS_PATH, f"{self.hostname_ipam}_running.txt")
 

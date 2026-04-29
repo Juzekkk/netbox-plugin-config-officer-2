@@ -34,7 +34,7 @@ def get_device_config(directory: str, hostname: str, config_type: str = "running
 def get_days_after_update(directory: str, hostname: str, config_type: str = "running") -> int:
     """
     Return how many days ago the config file was last written.
-    Returns -1 on any error (file missing, permission denied, …).
+    Returns -1 on any error (file missing, permission denied, ...).
     """
     path = os.path.join(directory, f"{hostname}_{config_type}.txt")
     try:

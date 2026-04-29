@@ -18,7 +18,7 @@ from config_officer.cisco_diff import (
     Config,
     _load,
     _matches,
-    _valid,
+    _valid_line,
 )
 
 # ---------------------------------------------------------------------------
@@ -84,7 +84,7 @@ class TestValid:
         ],
     )
     def test_valid(self, line: str, expected: bool):
-        assert _valid(line) is expected
+        assert _valid_line(line) is expected
 
 
 # ---------------------------------------------------------------------------
