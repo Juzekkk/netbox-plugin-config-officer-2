@@ -264,6 +264,17 @@ class CollectSchedule(JobsMixin, NetBoxModel):
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
+    webhook_url = models.URLField(
+        max_length=512,
+        blank=True,
+        help_text="Optional URL to POST a summary to after the schedule completes.",
+    )
+    webhook_secret = models.CharField(
+        max_length=256,
+        blank=True,
+        help_text="Optional HMAC-SHA256 secret for X-Webhook-Signature header.",
+    )
+
     class Meta:
         ordering = ["next_run"]
         verbose_name = "Collect Schedule"

@@ -148,9 +148,29 @@ class CollectScheduleForm(forms.ModelForm):
         help_text="Uncheck to create the schedule in a paused state.",
     )
 
+    webhook_url = forms.URLField(
+        required=False,
+        label="Webhook URL",
+        help_text="Optional URL to POST a collection summary to after all devices are collected.",
+    )
+    webhook_secret = forms.CharField(
+        required=False,
+        label="Webhook Secret",
+        widget=forms.PasswordInput(render_value=False),
+        help_text="Leave blank to send webhook without a signature. Re-enter to update.",
+    )
+
     class Meta:
         model = CollectSchedule
-        fields = ["name", "devices", "interval_hours", "next_run", "enabled"]
+        fields = [
+            "name",
+            "devices",
+            "interval_hours",
+            "next_run",
+            "enabled",
+            "webhook_url",
+            "webhook_secret",
+        ]
 
     def clean_interval_hours(self) -> int:
         value = self.cleaned_data["interval_hours"]
