@@ -88,7 +88,10 @@ def _get_ssh_env(key_path: str | None) -> dict[str, str]:
     Build GIT_SSH_COMMAND that uses the specified key and disables interactive prompts.
     Returns an empty dict when no key is configured.
     """
-    if not key_path:
+    if not key_path or not GIT_REMOTE_ENABLED:
+        return {}
+    if not os.path.exists(key_path):
+        logger.warning("[GIT] SSH key not found at %r - skipping SSH config", key_path)
         return {}
     prepared_key = _prepare_ssh_key(key_path)
     cmd = (
@@ -291,7 +294,7 @@ def _make_initial_commit(repo: Repo, msg: str, has_remote: bool) -> str:
         return "initial: nothing to commit"
     repo.git.commit("-m", msg, author=GIT_AUTHOR)
     logger.info("[GIT] Initial commit done")
-    if has_remote:
+    if has_remote and GIT_REMOTE_ENABLED:
         _apply_ssh_env(GIT_REMOTE_KEY)
         results = repo.remotes[GIT_REMOTE_NAME].push(GIT_REMOTE_BRANCH)
         for info in results:
