@@ -22,7 +22,6 @@ from .choices import (
     ServiceComplianceChoices,
 )
 from .config_manager import generate_templates_config_for_device
-from .jobs import CollectScheduleJob
 
 
 # --------------------------------------------------------------------------------------------------------------------------
@@ -279,6 +278,9 @@ class CollectSchedule(JobsMixin, NetBoxModel):
 
     def _schedule_job(self):
         if self.enabled:
+            # import has to be here due to curcular import problem
+            from .jobs import CollectScheduleJob  # noqa: PLC0415
+
             CollectScheduleJob.enqueue_once(
                 instance=self,
                 schedule_at=self.next_run,
