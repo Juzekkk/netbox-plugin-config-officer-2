@@ -244,10 +244,10 @@ class CollectDeviceData:
                 type(e).__name__,
                 e,
             )
-            raise CollectionException from e(
+            raise CollectionException(
                 reason=CollectFailChoices.FAIL_LOGIN,
                 message="Cannot login via SSH or Telnet",
-            )
+            ) from e
 
     def _check_serial_match(self, device_netbox) -> None:
         """
