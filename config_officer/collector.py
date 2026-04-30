@@ -252,11 +252,12 @@ class CollectDeviceData:
     def _check_serial_match(self, device_netbox) -> None:
         """
         Raise CollectionException if the collected serial doesn't match NetBox.
-        Does nothing it serial if serial is not defined in NetBox.
+        If serial is not defined in NetBox but collected from device, saves it automatically.
         """
         nb_sn = device_netbox.serial
         dev_sn = self._device.serial
         logger.info("[SERIAL] NetBox serial=%r collected serial=%r", nb_sn, dev_sn)
+
         if nb_sn and dev_sn and nb_sn != dev_sn:
             logger.error(
                 "[SERIAL] Mismatch for %r: NetBox=%r Device=%r",
@@ -268,6 +269,16 @@ class CollectDeviceData:
                 reason=CollectFailChoices.FAIL_UPDATE,
                 message=f"Serial mismatch: NetBox={nb_sn!r} Device={dev_sn!r}",
             )
+
+        elif not nb_sn and dev_sn:
+            logger.info(
+                "[SERIAL] No serial in NetBox for %r, saving collected serial=%r",
+                self.hostname_ipam,
+                dev_sn,
+            )
+            device_netbox.serial = dev_sn
+            device_netbox.save(update_fields=["serial"])
+
         logger.info("[SERIAL] Serial check passed for %r", self.hostname_ipam)
 
     def _update_custom_fields(self, device_netbox) -> None:
