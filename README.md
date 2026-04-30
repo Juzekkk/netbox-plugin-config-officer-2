@@ -2,306 +2,222 @@
 <img width="200" height="200" src="./static/logo.png">
 </p>
 
-# Config Officer - NetBox plugin
+# NetBox Config Officer Plugin
 
-NetBox plugin that deals with Cisco device configuration (collects running config from Cisco devices, indicates config changes, and checks templates compliance).
+[![PyPI version](https://img.shields.io/pypi/v/netbox-plugin-config-officer-2)](https://pypi.org/project/netbox-plugin-config-officer-2/)
+[![Python](https://img.shields.io/pypi/pyversions/netbox-plugin-config-officer-2)](https://pypi.org/project/netbox-plugin-config-officer-2/)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-A plugin for [NetBox](https://github.com/netbox-community/netbox) to work with running-configuration of Cisco devices.
-> Compatible with NetBox 2.9 and higher versions only.
+A [NetBox](https://github.com/netbox-community/netbox) plugin for collecting Cisco device configurations, tracking changes over time, and auditing compliance with predefined templates. Forked from [artyomovs/netbox-plugin-config-officer](https://github.com/artyomovs/netbox-plugin-config-officer) and updated for NetBox 4.x.
 
-- Collect actual information from Cisco devices (running_config, version, IP addresses, etc.) and shows it on a dedicated NetBox page.
-- Save Cisco running configuration in a local directory and display all changes with git-like diffs.
-- Set up configuration templates for distinct device roles, types.
-- Audit whether devices are configured according to appropriate template.
-- Export template compliance detailed information to Excel.
+**Features:**
 
-Preview.
-> Collect devices data:
+- Collect running configuration and version info from Cisco devices via SSH
+- Store configs in a Git repository and display diffs in NetBox
+- Schedule automatic collection from specified devices
+- Define configuration templates per device role or type and audit compliance
+- Export compliance results to CSV
+- Automatically create interfaces, LAGs, and IP addresses in NetBox from device config
+
+## Preview
+
+> Collect device data:
 > ![collect devices data](static/collection.gif)
 
-> Templates compliance
+> Template compliance:
 > ![templates compliance](static/templates.gif)
 
 ---
 
-## Table of Contents
+## Installation
 
-- [Development Setup](#development-setup)
-- [Installation and Configuration](#installation-and-configuration)
-- [Usage](#usage)
+> These instructions assume a standard NetBox installation managed with pip. For general plugin installation guidance see the [official NetBox docs](https://netbox.readthedocs.io/en/stable/plugins/).
 
----
+### 1. Install system dependencies
 
-## Development Setup
-
-This section describes how to set up a local development environment so you can work on the plugin, run tests, and have pre-commit checks run automatically on every commit.
-
-### Step 1 - Clone the repository
+The plugin connects to devices over SSH and interacts with Git. Make sure the following packages are available on the system running NetBox:
 
 ```shell
-git clone https://github.com/Juzekkk/netbox-plugin-config-officer-2
-cd netbox-plugin-config-officer-2
+# Debian / Ubuntu
+apt-get install -y git openssh-client
 ```
 
-### Step 2 - Install dependencies
+### 2. Install the plugin
 
-Poetry creates an isolated virtual environment and installs both runtime and development dependencies declared in `pyproject.toml`.
+Activate the NetBox virtual environment, then install the plugin and its Python dependencies:
 
 ```shell
-poetry install
+source /opt/netbox/venv/bin/activate
+pip install netbox-plugin-config-officer-2
 ```
 
-Activate the environment for the current shell session (optional - all subsequent commands work with `poetry run <cmd>` too):
+To ensure the plugin is automatically reinstalled during future NetBox upgrades:
 
 ```shell
-poetry shell
+echo netbox-plugin-config-officer-2 >> /opt/netbox/local_requirements.txt
 ```
 
-### Step 3 - Install pre-commit hooks
-
-This registers the hooks defined in `.pre-commit-config.yaml` into your local `.git` directory. They will run automatically before every `git commit`.
+### 3. Run database migrations
 
 ```shell
-# Register the pre-commit hook (runs before staging is finalised)
-pre-commit install
-
-# Register the commit-msg hook (validates the commit message format)
-pre-commit install --hook-type commit-msg
+cd /opt/netbox/netbox
+python manage.py migrate config_officer
 ```
 
-### Step 4 - Verify the setup
+### 4. Prepare the config storage directory
 
-Run all hooks against every file in the repository to confirm everything is working before you make your first commit:
+The plugin stores device configurations in a local directory that it manages as a Git repository. The plugin will initialise the Git repository inside it automatically on first run.
 
 ```shell
-pre-commit run --all-files
+mkdir -p /opt/device_configs
 ```
 
-All checks should pass on a clean checkout. If anything fails, fix it before proceeding.
-
-### Step 5 - Run the test suite
+The NetBox process (or the RQ worker, if you run one) must be able to read and write this directory. Set ownership to whichever user NetBox Worker runs as:
 
 ```shell
-pytest
+chown -R <netbox-user>:<netbox-user> /opt/device_configs
 ```
 
-Unit tests live in `tests/` and do not require a running NetBox instance - a lightweight stub in `tests/conftest.py` satisfies the `netbox.plugins` import at collection time.
+> If you are unsure which user NetBox runs as, check your systemd service file (`User=` field) or run `ps aux | grep netbox`.
 
----
+### 5. Enable and configure the plugin
 
-### Commit message format
-
-This project follows the [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) specification, enforced by the `commitizen` hook on every commit.
-
-The required format is:
-
-```
-<type>(<scope>): <subject>
-```
-
-Valid types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`
-
-Commits that do not follow this format will be rejected by the `commit-msg` hook.
-
----
-
-### Selective test execution
-
-The `pytest-changed` pre-commit hook automatically determines which test files are relevant to the files you are committing and runs only those.
-
-The mapping logic is:
-
-- A changed test file (e.g. `tests/test_cisco_diff.py`) -> runs that file directly.
-- A changed production module (e.g. `config_officer/cisco_diff.py`) -> looks for `tests/**/test_cisco_diff.py`.
-- Django migration files and non-Python files are skipped entirely.
-
-To run the full test suite manually at any time:
-
-```shell
-pytest
-```
-
-To run tests for a specific module only:
-
-```shell
-pytest tests/test_cisco_diff.py -v
-```
-
----
-
-### Project structure
-
-```
-.
-├── config_officer/               # Plugin source code
-│   └── ...
-├── tests/
-│   ├── conftest.py               # Injects a netbox.plugins stub so tests run without NetBox
-│   └── ...
-├── scripts/
-│   ├── run_tests_for_changed.py  # Pre-commit helper: maps changed files to test files
-│   └── ...
-├── .pre-commit-config.yaml
-└── pyproject.toml                # Dependencies, Ruff, pytest, and Commitizen configuration
-```
-
----
-
-## Installation and Configuration
-
-> Watch the [YouTube](https://www.youtube.com/watch?v=O5kayrkuC1E) video about installation and usage of the plugin.
-
-This instruction only describes how to install this plugin into a [Docker Compose](https://github.com/netbox-community/netbox-docker) instance of NetBox.
-
-> General installation steps and considerations follow the [official guidelines](https://netbox.readthedocs.io/en/stable/plugins/).
-> The plugin is available as a Python package from [PyPi](https://pypi.org/project/netbox-plugin-config-officer/) or from [GitHub](https://github.com/artyomovs/netbox-plugin-config-officer).
-
-### 0. Pull NetBox docker-compose version from GitHub
-
-```shell
-mkdir ~/netbox && cd "$_"
-git clone https://github.com/netbox-community/netbox-docker
-```
-
-### 1. Create new docker container based on latest netbox image
-
-```shell
-cd ~/netbox
-git clone https://github.com/artyomovs/netbox-plugin-config-officer
-cd netbox-plugin-config-officer
-sudo docker build -t netbox-myplugins .
-```
-
-> What's in the Dockerfile:
->
-> ```dockerfile
-> FROM netboxcommunity/netbox:latest
-> RUN apk add iputils bind-tools openssh-client git
-> COPY ./requirements.txt /
-> COPY . /netbox-plugin-config-officer/
-> RUN /opt/netbox/venv/bin/pip install install -r /requirements.txt
-> RUN /opt/netbox/venv/bin/pip install  --no-warn-script-location /netbox-plugin-config-officer/
-> ```
-
-### 2. Create local git repository and perform first commit
-
-```shell
-mkdir ~/netbox/netbox-docker/device_configs && cd "$_"
-git init
-echo hello > hello.txt
-git add .
-git commit -m "Initial"
-chmod 777 -R ../device_configs
-```
-
-### 3. Change **netbox** service in docker-compose.yml (do not delete, just add new lines and change image name)
-
-```yaml
-version: '3.4'
-services:
-  netbox: &netbox
-    # Change image name to netbox-myplugins (old name is netboxcommunity/netbox:${VERSION-latest})
-    image: netbox-myplugins
-    ...
-    # Add environment variables for git:
-    environment:
-      - GIT_PYTHON_GIT_EXECUTABLE=/usr/bin/git
-      - GIT_COMMITTER_NAME=netbox
-      - GIT_COMMITTER_EMAIL=netbox@example.com
-    # user: '101' <--- Comment this out. SSH does not work with this line set.
-    volumes:
-    # Add this volume:
-      - ./device_configs:/device_configs:z
-    ports:
-      - 8080:8080
-```
-
-### 4. Update the *PLUGINS* parameter in the global NetBox **configuration.py** config file in *netbox-docker/configuration* directory
+Add `config_officer` to `PLUGINS` in your `configuration.py`, and add a `PLUGINS_CONFIG` block. The only required settings are `NETBOX_DEVICES_CONFIGS_REPO_DIR` and the device credentials:
 
 ```python
-PLUGINS = [
-    "config_officer"
-]
-```
+PLUGINS = ["config_officer"]
 
-Update the `PLUGINS_CONFIG` parameter in **configuration.py** to configure the plugin:
-
-```python
 PLUGINS_CONFIG = {
     "config_officer": {
-        # Credentials to Cisco devices:
+        # REQUIRED - path to the directory prepared in step 4
+        "NETBOX_DEVICES_CONFIGS_REPO_DIR": "/opt/device_configs",
+
+        # REQUIRED - credentials used to SSH into devices
         "DEVICE_USERNAME": "cisco",
         "DEVICE_PASSWORD": "cisco",
-        # "DEVICE_SSH_PORT": 1234  # default: 22
-
-        # Mount this directory to NetBox in docker-compose.yml
-        "NETBOX_DEVICES_CONFIGS_DIR": "/device_configs",
-
-        # Add these custom fields to NetBox in advance:
-        "CF_NAME_SW_VERSION": "version",
-        "CF_NAME_SSH": "ssh",
-        "CF_NAME_LAST_COLLECT_DATE": "last_collect_date",
-        "CF_NAME_LAST_COLLECT_TIME": "last_collect_time",
-        "CF_NAME_COLLECTION_STATUS": "collection_status"
     }
 }
 ```
 
-### 5. Start Docker Compose
+All other settings are optional and documented in the [Configuration](#configuration) section below.
+
+### 6. Restart NetBox
 
 ```shell
-cd ~/netbox/netbox-docker/
-sudo docker-compose up -d
+systemctl restart netbox netbox-rqworker
 ```
 
-### 6. When NetBox is started - open the web interface `http://NETBOX_IP:8080`, open the Admin panel, and create the following elements
+### 7. Create Custom Fields in NetBox (optional)
 
-#### Custom Links
+These fields store collection metadata on each device. Create them under **dcim > device** and make sure their names match the `CF_NAME_*` values in your config (defaults shown below):
 
-| Name | Content type | URL |
+| Name | Label | Type |
 |---|---|---|
-| collect_device_data | dcim > device | `http://NETBOX_IP:8080/plugins/config_officer/collect_device_config/{{ obj }}` |
-| show_running_config | dcim > device | `http://NETBOX_IP:8080/plugins/config_officer/running_config/{{ obj.name }}` |
+| `version` | Software version | Text |
+| `ssh` | SSH enabled | Boolean |
+| `last_collect_date` | Date of last collection | Text |
+| `last_collect_time` | Time of last collection | Text |
 
-#### Custom Fields (optional)
+---
 
-| Name | Label | Object(s) |
+## Configuration
+
+All settings can be provided in `PLUGINS_CONFIG` or as environment variables. Environment variables take priority. The env var name for each setting is `CO_<KEY>` unless noted otherwise.
+
+### Required
+
+| Setting | Env var | Description |
 |---|---|---|
-| collection_status | Last collection status | dcim > device |
-| last_collect_date | Date of last collection | dcim > device |
-| last_collect_time | Time of last collection | dcim > device |
-| ssh | SSH enabled | dcim > device |
-| version | Software version | dcim > device |
+| `CONFIGS_REPO_DIR` | `CO_CONFIGS_REPO_DIR` | Path to the directory where device configs are stored. Must exist; the plugin initialises the Git repo inside it on first run. |
+| `DEVICE_USERNAME` | `CO_DEVICE_USERNAME` | SSH username for connecting to devices. |
+| `DEVICE_PASSWORD` | `CO_DEVICE_PASSWORD` | SSH password for connecting to devices. |
+
+### Optional
+
+#### SSH
+
+| Setting | Env var | Default | Description |
+|---|---|---|---|
+| `DEVICE_SSH_PORT` | `CO_DEVICE_SSH_PORT` | `22` | SSH port used for all devices. |
+| `DEFAULT_PLATFORM` | `CO_DEFAULT_PLATFORM` | `nxos` | Default scrapli driver/platform used when a device has no platform set in NetBox. |
+
+#### Config storage
+
+| Setting | Env var | Default | Description |
+|---|---|---|---|
+| `CONFIGS_SUBPATH` | `CO_CONFIGS_SUBPATH` | `netbox` | Sub-directory inside the repo where config files are written. |
+
+#### Remote Git
+
+Push configs to a remote Git repository (GitHub, GitLab, etc.) after each collection. Configure via the `GIT_REMOTE` dict or individual env vars:
+
+| Setting | Env var | Default | Description |
+|---|---|---|---|
+| `GIT_REMOTE.ENABLED` | `CO_GIT_REMOTE_ENABLED` | `True` | Enable or disable remote push. |
+| `GIT_REMOTE.URL` | `CO_GIT_REMOTE_URL` | `None` | Remote URL (e.g. `git@github.com:org/repo.git`). Required if remote push is enabled. |
+| `GIT_REMOTE.NAME` | `CO_GIT_REMOTE_NAME` | `origin` | Git remote name. |
+| `GIT_REMOTE.BRANCH` | `CO_GIT_REMOTE_BRANCH` | `netbox` | Branch to push to. |
+| `GIT_REMOTE.SSH_KEY_PATH` | `CO_GIT_REMOTE_SSH_KEY_PATH` | `None` | Path to the SSH private key used for remote authentication. |
+| `GIT_REMOTE.AUTHOR` | `CO_GIT_REMOTE_AUTHOR` | `Netbox <netbox@example.com>` | Git author string for commits. |
+
+#### Custom field names
+
+Only needed if you named your custom fields differently from the defaults:
+
+| Setting | Default |
+|---|---|
+| `CF_NAME_SW_VERSION` | `version` |
+| `CF_NAME_SSH` | `ssh` |
+| `CF_NAME_LAST_COLLECT_DATE` | `last_collect_date` |
+| `CF_NAME_LAST_COLLECT_TIME` | `last_collect_time` |
+
+#### Feature flags
+
+| Setting | Env var | Default | Description |
+|---|---|---|---|
+| `COLLECT_INTERFACES_DATA` | `CO_COLLECT_INTERFACES_DATA` | `True` | Create/update interfaces in NetBox from device config. |
+| `COLLECT_PORT_CHANNEL_DATA` | `CO_COLLECT_PORT_CHANNEL_DATA` | `True` | Create/update LAGs in NetBox from device config. |
+
+#### Config sanitisation
+
+| Setting | Default | Description |
+|---|---|---|
+| `SENSITIVE_PREFIXES` | `username`, `ssh`, `snmp-server user`, `crypto`, `key`, `password` | Lines whose first word matches any of these prefixes are redacted before the config is saved. |
+| `VOLATILE_LINE_PATTERNS` | Timestamp and `ntp clock-period` patterns | Regex patterns - matching lines are stripped before diffing so they don't produce false-positive changes. |
 
 ---
 
 ## Usage
 
-Follow the [YouTube](https://www.youtube.com/watch?v=O5kayrkuC1E) link to see the full installation and usage instructions.
+### Collecting device configurations
 
-### Collection
+ **Collect Device Data** and **Show Running Config** buttons should appear on each device page. Clicking **Collect Device Data** pulls the current running config via SSH and commits it to the configured Git repository.
 
-Add all needed Custom Links and Custom Fields (optionally) and have fun.
+### Template compliance
 
-### Templates compliance
+After installation a **Plugins** menu appears in the top navigation bar. Template compliance follows a three-step workflow:
 
-After the plugin is installed, an additional "Plugin" menu will appear in the top navigation panel.
-For the templates compliance feature, follow this three-step scenario:
+1. **Add a template** - define a configuration block that devices should conform to.
+2. **Add a service** - group one or more templates and bind them to specific device roles or types via service rules.
+3. **Attach the service to devices** - all matched templates are merged into a single combined template and compared against each device's running config.
 
-1. **Add a template** - e.g. for a particular configuration section.
-2. **Add a service** - inside the service, add service rules that match the template to particular device roles and device types.
-3. **Attach the service to devices.**
+Compliance results can be exported to CSV from the compliance list view.
 
 ![compliance_list](static/compliance_list.png)
 
-All matched templates will be merged into one combined template, which is then compared against the actual running config.
+### Scheduled collection
 
-### Schedule config collection
+Planned collection across all devices can be scheduled directly from the **Schedule Data Collection** menu under **Plugins** in the top navigation bar.
 
-To schedule a global collection from all devices (e.g. every night at 3 a.m.) use the API. Add this line to cron:
 
-```shell
-curl --location --request POST 'http://NETBOX_IP:8080/api/plugins/config_officer/collection/' \
-  --header 'Authorization: Token YOUR_TOKEN' \
-  --form 'task="global_collection"'
-```
+---
+
+## Development
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full development setup guide, including how to run a local NetBox stack with Docker Compose, the pre-commit hook setup, and commit message conventions.
+
+---
+
+## License
+
+[Apache License 2.0](LICENSE)
