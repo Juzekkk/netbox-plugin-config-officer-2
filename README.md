@@ -1,3 +1,7 @@
+<p align="center">
+<img width="200" height="200" src="./static/logo.png">
+</p>
+
 # Config Officer - NetBox plugin
 
 NetBox plugin that deals with Cisco device configuration (collects running config from Cisco devices, indicates config changes, and checks templates compliance).
