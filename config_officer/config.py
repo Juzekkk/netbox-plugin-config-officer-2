@@ -48,8 +48,8 @@ CF_LAST_COLLECT_DATE: str = _get("CF_NAME_LAST_COLLECT_DATE", "last_collect_date
 CF_LAST_COLLECT_TIME: str = _get("CF_NAME_LAST_COLLECT_TIME", "last_collect_time")
 
 # Storage
-CONFIGS_REPO_DIR: str = _get("NETBOX_DEVICES_CONFIGS_REPO_DIR", "/device_configs")
-CONFIGS_SUBPATH: str = _get("NETBOX_DEVICES_CONFIGS_SUBPATH", "netbox")
+CONFIGS_REPO_DIR: str = _get("CONFIGS_REPO_DIR", "/device_configs")
+CONFIGS_SUBPATH: str = _get("CONFIGS_SUBPATH", "netbox")
 CONFIGS_PATH: str = os.path.join(CONFIGS_REPO_DIR, CONFIGS_SUBPATH)
 
 # Remote
