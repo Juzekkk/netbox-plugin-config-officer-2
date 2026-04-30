@@ -298,7 +298,7 @@ def cancel_schedule_jobs(sender, instance, **kwargs):
     deleted, _ = Job.objects.filter(
         object_type=ct,
         object_id=instance.pk,
-        status=JobStatusChoices.STATUS_SCHEDULED,  # tylko zaplanowane, nie historia
+        status=JobStatusChoices.STATUS_SCHEDULED,  # remove scheduled only
     ).delete()
 
 
