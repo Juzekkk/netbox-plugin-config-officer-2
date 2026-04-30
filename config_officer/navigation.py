@@ -1,20 +1,34 @@
-from netbox.plugins import PluginMenuItem
+from netbox.plugins import PluginMenu, PluginMenuItem
 
-menu_items = (
-    PluginMenuItem(
-        link="plugins:config_officer:collection_status",
-        link_text="Device data collection",
-    ),
-    PluginMenuItem(
-        link="plugins:config_officer:template_list",
-        link_text="Templates configuration",
-    ),
-    PluginMenuItem(
-        link="plugins:config_officer:service_mapping_list",
-        link_text="Templates compliance status",
-    ),
-    PluginMenuItem(
-        link="plugins:config_officer:schedule_list",
-        link_text="Schedule data collection",
+menu = PluginMenu(
+    label="Config Officer",
+    icon_class="mdi mdi-account-tie-hat",
+    groups=(
+        (
+            "COLLECTION",
+            (
+                PluginMenuItem(
+                    link="plugins:config_officer:schedule_list",
+                    link_text="Schedule Data Collection",
+                ),
+                PluginMenuItem(
+                    link="plugins:config_officer:collection_status",
+                    link_text="Data Collection Jobs",
+                ),
+            ),
+        ),
+        (
+            "COMPLIANCE",
+            (
+                PluginMenuItem(
+                    link="plugins:config_officer:template_list",
+                    link_text="Templates Configuration",
+                ),
+                PluginMenuItem(
+                    link="plugins:config_officer:service_mapping_list",
+                    link_text="Templates Compliance Status",
+                ),
+            ),
+        ),
     ),
 )
