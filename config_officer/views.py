@@ -23,6 +23,8 @@ from netbox.views.generic import (
 from rq.exceptions import NoSuchJobError
 from rq.job import Job
 
+from config_officer.jobs import CollectScheduleJob
+
 from .choices import CollectStatusChoices
 from .config import CONFIGS_PATH, TIME_ZONE
 from .filters import CollectionFilter, ServiceMappingFilter
@@ -57,7 +59,6 @@ from .tables import (
     ServiceRuleListTable,
     TemplateListTable,
 )
-from .worker import collect_device_config_task
 
 # ---------------------------------------------------------------------------
 # Base helpers
@@ -572,24 +573,14 @@ class CollectScheduleDeleteView(ObjectDeleteView):
 
 
 class CollectScheduleRunNowView(View):
-    """Immediately queues the configuration collection for all devices in the schedule."""
-
     def get(self, request, pk):
         schedule = get_object_or_404(CollectSchedule, pk=pk)
 
-        queue = get_queue("default")
-        commit_msg = f"schedule_{schedule.name}_{datetime.now().strftime('%Y_%m_%d_%H_%M_%S')}"
-
-        for device in schedule.devices.all():
-            collect_task = Collection.objects.create(
-                device=device,
-                message=f"schedule:{schedule.name}",
-            )
-            queue.enqueue(collect_device_config_task, collect_task.pk, commit_msg)
+        CollectScheduleJob.enqueue(instance=schedule, user=request.user)
 
         messages.success(
             request,
-            f"The collection process has been queued for {schedule.devices.count()} devices.",
+            f"Collection has been queued for {schedule.devices.count()} devices.",
         )
         return redirect("plugins:config_officer:schedule_list")
 
