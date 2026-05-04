@@ -135,7 +135,6 @@ def _build_payload(
     tasks,
     since: datetime | None,
 ) -> str:
-    """Assemble and return the JSON payload string."""
     results = [
         {
             "device": t.device.name if t.device else "unknown",
@@ -151,6 +150,8 @@ def _build_payload(
     device_names = [t.device.name for t in tasks if t.device]
     diffs = _collect_git_diffs(device_names, since)
 
+    changed = sum(1 for d in diffs if d.get("changed"))
+
     return json.dumps(
         {
             "event": "schedule_complete",
@@ -160,6 +161,7 @@ def _build_payload(
                 "total": len(results),
                 "succeeded": succeeded,
                 "failed": failed,
+                "changed": changed,
             },
             "results": results,
             "diffs": diffs,
