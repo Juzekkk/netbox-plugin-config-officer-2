@@ -64,12 +64,39 @@ def _strip_volatile_lines(text: str) -> str:
     )
 
 
+def get_active_collect_task_count() -> int:
+    """Return the number of pending/running global collection tasks."""
+    return Collection.objects.filter(
+        Q(status__iexact=CollectStatusChoices.STATUS_PENDING)
+        | Q(status__iexact=CollectStatusChoices.STATUS_RUNNING),
+        message__iexact=GLOBAL_TASK_INIT_MESSAGE,
+    ).count()
+
+
+# ---------------------------------------------------------------------------
+# SSH / remote helpers
+# ---------------------------------------------------------------------------
+
+
+def _remote_is_configured() -> bool:
+    """True when git remote push is enabled and a URL is set."""
+    return bool(GIT_REMOTE_ENABLED and GIT_REMOTE_URL)
+
+
+def _ssh_key_is_available() -> bool:
+    """True when a key path is configured and the file actually exists."""
+    if not GIT_REMOTE_KEY:
+        return False
+    if not os.path.exists(GIT_REMOTE_KEY):
+        logger.warning("[GIT] SSH key not found at %r", GIT_REMOTE_KEY)
+        return False
+    return True
+
+
 def _prepare_ssh_key(key_path: str) -> str:
     """
-    Copy SSH key to a temp file with correct permissions and trailing newline.
-    OpenSSH requires a newline at the end of the key file.
-    The key mounted from Kubernetes secret may lack it due to AVP stripping
-    trailing newlines from Vault values.
+    Copy SSH key to a temp file with correct permissions and a trailing newline.
+    OpenSSH requires a newline at the end; keys from Kubernetes/AVP may lack it.
     """
     with open(key_path, "rb") as f:
         data = f.read()
@@ -83,16 +110,11 @@ def _prepare_ssh_key(key_path: str) -> str:
     return tmp.name
 
 
-def _get_ssh_env(key_path: str | None) -> dict[str, str]:
+def _apply_ssh_env(key_path: str) -> None:
     """
-    Build GIT_SSH_COMMAND that uses the specified key and disables interactive prompts.
-    Returns an empty dict when no key is configured.
+    Set GIT_SSH_COMMAND in the environment so GitPython uses our key.
+    Caller is responsible for checking _ssh_key_is_available() first.
     """
-    if not key_path or not GIT_REMOTE_ENABLED:
-        return {}
-    if not os.path.exists(key_path):
-        logger.warning("[GIT] SSH key not found at %r - skipping SSH config", key_path)
-        return {}
     prepared_key = _prepare_ssh_key(key_path)
     cmd = (
         f"ssh -i {prepared_key}"
@@ -103,56 +125,59 @@ def _get_ssh_env(key_path: str | None) -> dict[str, str]:
         " -o ConnectTimeout=15"
     )
     logger.info("[GIT] GIT_SSH_COMMAND: %s", cmd)
-    return {"GIT_SSH_COMMAND": cmd}
+    os.environ["GIT_SSH_COMMAND"] = cmd
 
 
-def _apply_ssh_env(key_path: str | None) -> None:
-    os.environ.update(_get_ssh_env(key_path))
+def _setup_remote_access(repo: Repo) -> bool:
+    """
+    Ensure the configured remote exists in the repo and SSH env is ready.
 
+    Returns True when everything is in order and remote operations can proceed.
+    Returns False (with a warning) when remote is disabled or SSH key is missing.
+    """
+    if not _remote_is_configured():
+        logger.info("[GIT] Remote disabled or URL not set - local repo only")
+        return False
 
-def get_active_collect_task_count() -> int:
-    """Return the number of pending/running global collection tasks."""
-    return Collection.objects.filter(
-        Q(status__iexact=CollectStatusChoices.STATUS_PENDING)
-        | Q(status__iexact=CollectStatusChoices.STATUS_RUNNING),
-        message__iexact=GLOBAL_TASK_INIT_MESSAGE,
-    ).count()
+    if not _ssh_key_is_available():
+        logger.warning("[GIT] SSH key unavailable - skipping remote, keeping local repo only")
+        return False
+
+    remote_names = [r.name for r in repo.remotes]
+    if GIT_REMOTE_NAME not in remote_names:
+        logger.info("[GIT] Adding remote %r -> %s", GIT_REMOTE_NAME, GIT_REMOTE_URL)
+        repo.create_remote(GIT_REMOTE_NAME, GIT_REMOTE_URL)
+
+    _apply_ssh_env(GIT_REMOTE_KEY)
+    return True
 
 
 # ---------------------------------------------------------------------------
-# Git helpers
+# Git repo helpers
 # ---------------------------------------------------------------------------
 
 
 def _open_or_init_repo() -> tuple[Repo, bool]:
     """
-    Open an existing repo or initialise a new one.
-    safe.directory MUST be configured before calling this.
-    Returns (repo, is_new).
+    Open an existing repo or initialise a new one at CONFIGS_REPO_DIR.
+    Returns (repo, is_new) where is_new is True when HEAD has no commits yet.
     """
     logger.info("[GIT] Opening repo at %r", CONFIGS_REPO_DIR)
     try:
         repo = Repo(CONFIGS_REPO_DIR)
         is_new = not repo.head.is_valid()
         sha = repo.head.commit.hexsha[:8] if repo.head.is_valid() else "none"
-        logger.info(
-            "[GIT] Opened existing repo at %r (HEAD=%s, is_new=%s)", CONFIGS_REPO_DIR, sha, is_new
-        )
+        logger.info("[GIT] Opened existing repo (HEAD=%s, is_new=%s)", sha, is_new)
         return repo, is_new
-    except InvalidGitRepositoryError:
-        logger.info("[GIT] No valid repo - initialising")
-        os.makedirs(CONFIGS_PATH, exist_ok=True)
-        repo = Repo.init(CONFIGS_REPO_DIR)
-        return repo, True
-    except NoSuchPathError:
-        logger.info("[GIT] Path does not exist - creating and initialising")
+    except (InvalidGitRepositoryError, NoSuchPathError):
+        logger.info("[GIT] No valid repo at %r - initialising", CONFIGS_REPO_DIR)
         os.makedirs(CONFIGS_PATH, exist_ok=True)
         repo = Repo.init(CONFIGS_REPO_DIR)
         return repo, True
 
 
 def _ensure_branch(repo: Repo) -> None:
-    """Ensure GIT_REMOTE_BRANCH is checked out, creating it if needed."""
+    """Ensure GIT_REMOTE_BRANCH is checked out, creating it locally if needed."""
     try:
         current = repo.active_branch.name
     except TypeError:
@@ -162,71 +187,44 @@ def _ensure_branch(repo: Repo) -> None:
         return
 
     if GIT_REMOTE_BRANCH in repo.heads:
-        logger.info("[GIT] Checking out branch '%s'", GIT_REMOTE_BRANCH)
+        logger.info("[GIT] Checking out existing branch %r", GIT_REMOTE_BRANCH)
         repo.git.checkout(GIT_REMOTE_BRANCH)
         return
 
     try:
         repo.git.checkout("-b", GIT_REMOTE_BRANCH, f"origin/{GIT_REMOTE_BRANCH}")
-        logger.info("[GIT] Checked out branch '%s' from origin", GIT_REMOTE_BRANCH)
+        logger.info("[GIT] Checked out %r from origin", GIT_REMOTE_BRANCH)
     except Exception:
-        logger.warning("[GIT] Remote branch '%s' not found - creating locally", GIT_REMOTE_BRANCH)
+        logger.warning("[GIT] Remote branch %r not found - creating locally", GIT_REMOTE_BRANCH)
         repo.git.checkout("-b", GIT_REMOTE_BRANCH)
 
 
-def _ensure_remote(repo: Repo) -> bool:
+def _fetch_and_checkout(repo: Repo) -> None:
     """
-    Make sure the configured remote exists with the right URL.
-    Returns True when a remote is present and push is enabled.
+    Fetch from remote and reset local branch to match.
+    If the remote branch does not exist yet, fall back to a local branch.
     """
-    if not GIT_REMOTE_ENABLED or not GIT_REMOTE_URL:
-        return False
-    remote_names = [r.name for r in repo.remotes]
-    if GIT_REMOTE_NAME not in remote_names:
-        logger.info("[GIT] Adding remote %r -> %s", GIT_REMOTE_NAME, GIT_REMOTE_URL)
-        repo.create_remote(GIT_REMOTE_NAME, GIT_REMOTE_URL)
-    return True
+    logger.info("[GIT] Fetching from remote %r", GIT_REMOTE_NAME)
+    repo.remotes[GIT_REMOTE_NAME].fetch()
 
+    remote_refs = [r.name for r in repo.remotes[GIT_REMOTE_NAME].refs]
+    target = f"{GIT_REMOTE_NAME}/{GIT_REMOTE_BRANCH}"
 
-def _initial_pull(repo: Repo) -> None:
-    """
-    On first repo init: fetch remote history and reset local branch to match.
-    Uses fetch + reset instead of pull to cleanly handle untracked local files.
-    """
-    if not GIT_REMOTE_ENABLED or not GIT_REMOTE_URL:
-        return
-    _apply_ssh_env(GIT_REMOTE_KEY)
-    try:
-        logger.info("[GIT] Fetching from remote %r", GIT_REMOTE_NAME)
-        repo.remotes[GIT_REMOTE_NAME].fetch()
-        logger.info("[GIT] Fetch complete")
-        remote_refs = [r.name for r in repo.remotes[GIT_REMOTE_NAME].refs]
-        logger.info("[GIT] Remote refs: %s", remote_refs)
-        if f"{GIT_REMOTE_NAME}/{GIT_REMOTE_BRANCH}" in remote_refs:
-            logger.info("[GIT] Checking out remote branch %r", GIT_REMOTE_BRANCH)
-            repo.git.checkout("-B", GIT_REMOTE_BRANCH, f"{GIT_REMOTE_NAME}/{GIT_REMOTE_BRANCH}")
-            logger.info("[GIT] Reset to remote branch complete")
-        else:
-            logger.info(
-                "[GIT] Remote branch %r not found - will create on first push", GIT_REMOTE_BRANCH
-            )
-    except GitCommandError as exc:
-        logger.warning("[GIT] Initial fetch failed: %s", exc)
-    except Exception:
-        logger.exception("[GIT] Unexpected error during initial fetch")
+    if target in remote_refs:
+        logger.info("[GIT] Checking out %r from remote", GIT_REMOTE_BRANCH)
+        repo.git.checkout("-B", GIT_REMOTE_BRANCH, target)
+        logger.info("[GIT] HEAD=%s", repo.head.commit.hexsha[:8])
+    else:
+        logger.info("[GIT] Remote branch %r not found - ensuring local branch", GIT_REMOTE_BRANCH)
+        _ensure_branch(repo)
 
 
 def _push_to_remote(repo: Repo) -> str:
-    """Push committed changes. Returns a short status string."""
-    _apply_ssh_env(GIT_REMOTE_KEY)
+    """Push committed changes to remote. Returns a short status string."""
     try:
         results = repo.remotes[GIT_REMOTE_NAME].push(GIT_REMOTE_BRANCH)
         for info in results:
-            logger.info(
-                "[GIT] Push result: flags=%s summary=%r",
-                info.flags,
-                info.summary.strip(),
-            )
+            logger.info("[GIT] Push result: flags=%s summary=%r", info.flags, info.summary.strip())
         return "pushed"
     except GitCommandError as exc:
         logger.error("[GIT] Push failed: %s", exc)
@@ -251,7 +249,6 @@ def _evaluate_staged_files(repo: Repo) -> tuple[list[str], list[str]]:
         path = diff_item.b_path or diff_item.a_path
         logger.debug("[GIT] Evaluating: %s", path)
 
-        # Full path preserving subdirectory structure
         abs_path = os.path.join(CONFIGS_REPO_DIR, path)
 
         try:
@@ -284,7 +281,7 @@ def _evaluate_staged_files(repo: Repo) -> tuple[list[str], list[str]]:
     return real_changes, timestamp_only
 
 
-def _make_initial_commit(repo: Repo, msg: str, has_remote: bool) -> str:
+def _make_initial_commit(repo: Repo, msg: str, remote_ready: bool) -> str:
     """Commit everything in a brand-new repo and optionally push."""
     repo.git.add("--all")
     staged = repo.git.diff("--cached", "--name-only")
@@ -292,68 +289,47 @@ def _make_initial_commit(repo: Repo, msg: str, has_remote: bool) -> str:
     if not staged:
         logger.info("[GIT] Nothing staged")
         return "initial: nothing to commit"
+
     repo.git.commit("-m", msg, author=GIT_AUTHOR)
     logger.info("[GIT] Initial commit done")
-    if has_remote and GIT_REMOTE_ENABLED:
-        _apply_ssh_env(GIT_REMOTE_KEY)
+
+    if remote_ready:
         results = repo.remotes[GIT_REMOTE_NAME].push(GIT_REMOTE_BRANCH)
         for info in results:
             logger.info("[GIT] Push: flags=%s summary=%r", info.flags, info.summary.strip())
         return "initial commit+pushed"
+
     return "initial commit"
+
+
+# ---------------------------------------------------------------------------
+# High-level repo setup used by RQ jobs
+# ---------------------------------------------------------------------------
 
 
 def _ensure_repo_ready() -> None:
     """
-    Ensure the local git repo exists, is on the correct branch,
-    and is up to date with remote. Called before each collect task.
+    Ensure the local git repo exists, is on the correct branch, and is
+    up to date with remote (when remote access is available).
+    Called before each collect task.
     """
     configure_safe_directory(CONFIGS_REPO_DIR, GIT_AUTHOR)
-
     logger.info("[GIT] Ensuring repo is ready at %r", CONFIGS_REPO_DIR)
 
     try:
-        try:
-            repo = Repo(CONFIGS_REPO_DIR)
-            logger.info("[GIT] Repo exists at %r", CONFIGS_REPO_DIR)
-        except (InvalidGitRepositoryError, NoSuchPathError):
-            logger.info("[GIT] Initialising new repo at %r", CONFIGS_REPO_DIR)
-            os.makedirs(CONFIGS_PATH, exist_ok=True)
-            repo = Repo.init(CONFIGS_REPO_DIR)
+        repo, _ = _open_or_init_repo()
+        remote_ready = _setup_remote_access(repo)
 
-        _ensure_remote(repo)
-
-        if not GIT_REMOTE_ENABLED or not GIT_REMOTE_URL:
-            logger.info("[GIT] Remote disabled - skipping fetch")
-            if not repo.head.is_valid():
-                _ensure_branch(repo)
+        if not remote_ready:
+            _ensure_branch(repo)
             return
 
-        _apply_ssh_env(GIT_REMOTE_KEY)
-
-        logger.info("[GIT] Fetching from remote %r", GIT_REMOTE_NAME)
-        repo.remotes[GIT_REMOTE_NAME].fetch()
-        logger.info("[GIT] Fetch complete")
-
-        remote_refs = [r.name for r in repo.remotes[GIT_REMOTE_NAME].refs]
-        target = f"{GIT_REMOTE_NAME}/{GIT_REMOTE_BRANCH}"
-
-        if target in remote_refs:
-            logger.info("[GIT] Checking out %r from remote", GIT_REMOTE_BRANCH)
-            repo.git.checkout("-B", GIT_REMOTE_BRANCH, target)
-            logger.info(
-                "[GIT] Now on branch %r at HEAD=%s",
-                GIT_REMOTE_BRANCH,
-                repo.head.commit.hexsha[:8],
-            )
-        else:
-            logger.info(
-                "[GIT] Remote branch %r not found - ensuring local branch", GIT_REMOTE_BRANCH
-            )
+        try:
+            _fetch_and_checkout(repo)
+        except GitCommandError as exc:
+            logger.warning("[GIT] Fetch failed: %s - continuing with local repo", exc)
             _ensure_branch(repo)
 
-    except GitCommandError as exc:
-        logger.warning("[GIT] _ensure_repo_ready failed: %s - continuing anyway", exc)
     except Exception:
         logger.exception("[GIT] Unexpected error in _ensure_repo_ready - continuing anyway")
 
@@ -422,7 +398,6 @@ def collect_device_config_task(task_id: int, commit_msg: str = "") -> str:  # no
         ip = str(ipaddress.ip_interface(device_nb.primary_ip4).ip)
         logger.debug("[COLLECT] Primary IP: %s", ip)
 
-        # Ensure git repo is ready and up to date before collecting
         _ensure_repo_ready()
 
         CollectDeviceData(
@@ -456,7 +431,6 @@ def collect_device_config_task(task_id: int, commit_msg: str = "") -> str:  # no
         _maybe_enqueue_commit()
         raise
 
-    # Success path
     collect_task.status = CollectStatusChoices.STATUS_SUCCEEDED
     collect_task.save()
     logger.info("[COLLECT] SUCCESS: %s (%s)", device_nb.name, ip)
@@ -481,13 +455,13 @@ def git_commit_configs_changes(msg: str) -> str:  # noqa: PLR0911
 
     Flow:
       1. Open or init the local git repo
-      2. Configure remote and do initial pull on first run
+      2. Set up remote access (if available)
       3. Stage all files
       4. Per-file: compare stripped content vs HEAD
-         - only timestamps changed  →  restore from HEAD, skip
-         - real change              →  keep staged
+         - only timestamps changed  ->  restore from HEAD, skip
+         - real change              ->  keep staged
       5. Commit if anything remains staged
-      6. Push to remote (if enabled)
+      6. Push to remote (if available)
     """
     logger.info("[GIT] git_commit_configs_changes: msg=%r", msg)
 
@@ -499,15 +473,14 @@ def git_commit_configs_changes(msg: str) -> str:  # noqa: PLR0911
         configure_safe_directory(CONFIGS_REPO_DIR, GIT_AUTHOR)
 
         repo, is_new = _open_or_init_repo()
-        has_remote = _ensure_remote(repo)
+        remote_ready = _setup_remote_access(repo)
 
         _ensure_branch(repo)
 
         # Truly empty repo - do an initial commit and exit
         if not repo.head.is_valid():
-            return _make_initial_commit(repo, msg, has_remote)
+            return _make_initial_commit(repo, msg, remote_ready)
 
-        # Stage everything
         repo.git.add("--all")
         staged = repo.index.diff("HEAD")
         logger.debug("[GIT] Files staged vs HEAD: %d", len(staged))
@@ -530,7 +503,7 @@ def git_commit_configs_changes(msg: str) -> str:  # noqa: PLR0911
         commit_result = repo.git.commit("-m", msg, author=GIT_AUTHOR)
         logger.info("[GIT] Committed: %s", commit_result.split("\n")[0])
 
-        if has_remote:
+        if remote_ready:
             push_status = _push_to_remote(repo)
             return f"committed+{push_status}"
 
