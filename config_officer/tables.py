@@ -155,7 +155,7 @@ class CollectionTable(tables.Table):
     pk = ToggleColumn()
     device = tables.Column(
         verbose_name="Hostname",
-        linkify=lambda record: (record.device.get_absolute_url() if record.device else None),
+        linkify=lambda record: record.device.get_absolute_url() if record.device else None,
     )
     status = tables.Column(verbose_name="Status")
     failed_reason = tables.Column(verbose_name="Failed Reason")
