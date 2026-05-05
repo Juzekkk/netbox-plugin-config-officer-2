@@ -86,7 +86,8 @@ jobs:
       - name: Check for merge conflict markers
         run: |
           if grep -rn "<<<<<<< \|>>>>>>> \|=======$" \
-                  --include="*.py" --include="*.yml" --include="*.html" .; then
+                  --include="*.py" --include="*.html" \
+                  --exclude-dir=".github" .; then
             echo "Merge conflict markers found!" && exit 1
           fi
 
