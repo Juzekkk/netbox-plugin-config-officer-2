@@ -21,4 +21,4 @@ class NetboxConfigOfficer(PluginConfig):
     caching_config = {}
 
 
-config = "config_officer.NetboxConfigOfficer"
+config = NetboxConfigOfficer
