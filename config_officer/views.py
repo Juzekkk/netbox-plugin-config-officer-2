@@ -552,7 +552,8 @@ def running_config_status(request, hostname, config_job_id, repo_job_id):
 # ---------------------------------------------------------------------------
 
 
-class CollectScheduleListView(ObjectListView):
+class CollectScheduleListView(PermissionRequiredMixin, ObjectListView):
+    permission_required = ("dcim.view_device",)
     queryset = CollectSchedule.objects.prefetch_related("devices")
     table = CollectScheduleTable
     actions = {
@@ -561,18 +562,22 @@ class CollectScheduleListView(ObjectListView):
     default_return_url = "plugins:config_officer:schedule_list"
 
 
-class CollectScheduleEditView(ObjectEditView):
+class CollectScheduleEditView(PermissionRequiredMixin, ObjectEditView):
+    permission_required = ("dcim.view_device",)
     queryset = CollectSchedule.objects.all()
     form = CollectScheduleForm
     default_return_url = "plugins:config_officer:schedule_list"
 
 
-class CollectScheduleDeleteView(ObjectDeleteView):
+class CollectScheduleDeleteView(PermissionRequiredMixin, ObjectDeleteView):
+    permission_required = ("dcim.view_device",)
     queryset = CollectSchedule.objects.all()
     default_return_url = "plugins:config_officer:schedule_list"
 
 
-class CollectScheduleRunNowView(View):
+class CollectScheduleRunNowView(PermissionRequiredMixin, View):
+    permission_required = ("dcim.view_device",)
+
     def get(self, request, pk):
         schedule = get_object_or_404(CollectSchedule, pk=pk)
 
@@ -587,6 +592,7 @@ class CollectScheduleRunNowView(View):
     default_return_url = "plugins:config_officer:schedule_list"
 
 
-class CollectScheduleJobsView(ObjectJobsView):
+class CollectScheduleJobsView(PermissionRequiredMixin, ObjectJobsView):
+    permission_required = ("dcim.view_device",)
     queryset = CollectSchedule.objects.all()
     template_name = "generic/object_jobs.html"
