@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import re
 
-from .config import REGEX_IPP
+from .configuration import REGEX_IPP
 from .models import ParsedDevice, ParsedInterface
 
 logger = logging.getLogger(__name__)

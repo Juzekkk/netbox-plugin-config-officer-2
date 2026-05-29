@@ -26,7 +26,7 @@ from rq.job import Job
 from config_officer.jobs import CollectScheduleJob
 
 from .choices import CollectStatusChoices
-from .config import CONFIGS_PATH, TIME_ZONE
+from .configuration import CONFIGS_PATH, TIME_ZONE
 from .filters import CollectionFilter, ServiceMappingFilter
 from .forms import (
     CollectionFilterForm,

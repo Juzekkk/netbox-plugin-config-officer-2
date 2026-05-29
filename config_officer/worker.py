@@ -26,7 +26,8 @@ from git.exc import GitCommandNotFound
 
 from .choices import CollectFailChoices, CollectStatusChoices, ServiceComplianceChoices
 from .collector import CollectDeviceData
-from .config import (
+from .config_manager import get_config_diff
+from .configuration import (
     CONFIGS_PATH,
     CONFIGS_REPO_DIR,
     CONFIGS_SUBPATH,
@@ -39,7 +40,6 @@ from .config import (
     GIT_REMOTE_URL,
     VOLATILE_LINE_PATTERNS_COMPILED,
 )
-from .config_manager import get_config_diff
 from .custom_exceptions import CollectionException
 from .git_manager import get_days_after_update, get_device_config, get_device_file_repo_state
 from .git_utils import configure_safe_directory

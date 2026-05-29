@@ -10,7 +10,7 @@ from datetime import datetime
 from git import NULL_TREE, InvalidGitRepositoryError, Repo
 from git.objects.commit import Commit
 
-from .config import CONFIGS_REPO_DIR, GIT_AUTHOR
+from .configuration import CONFIGS_REPO_DIR, GIT_AUTHOR
 from .git_utils import configure_safe_directory
 
 logger = logging.getLogger(__name__)

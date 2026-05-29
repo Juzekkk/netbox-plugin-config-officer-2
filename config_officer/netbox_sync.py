@@ -18,7 +18,7 @@ from ipam.choices import IPAddressRoleChoices, IPAddressStatusChoices
 from ipam.models import VRF, IPAddress
 from netaddr import EUI
 
-from .config import COLLECT_PORT_CHANNEL_DATA
+from .configuration import COLLECT_PORT_CHANNEL_DATA
 from .models import ParsedInterface
 
 logger = logging.getLogger(__name__)

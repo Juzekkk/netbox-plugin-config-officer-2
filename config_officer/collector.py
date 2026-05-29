@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 from scrapli.driver.core import IOSXEDriver, IOSXRDriver, NXOSDriver
 
 from .choices import CollectFailChoices
-from .config import (
+from .configuration import (
     CF_LAST_COLLECT_DATE,
     CF_LAST_COLLECT_TIME,
     CF_SSH,

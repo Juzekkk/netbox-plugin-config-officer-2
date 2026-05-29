@@ -24,7 +24,7 @@ from rq.exceptions import NoSuchJobError
 from rq.job import Job as RQJob
 
 from .choices import CollectStatusChoices
-from .config import CONFIGS_REPO_DIR, CONFIGS_SUBPATH, GIT_AUTHOR
+from .configuration import CONFIGS_REPO_DIR, CONFIGS_SUBPATH, GIT_AUTHOR
 from .git_utils import configure_safe_directory
 from .models import Collection, CollectSchedule
 
