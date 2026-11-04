@@ -269,3 +269,33 @@ def test_bgp_nxos():
 
 def test_no_bgp():
     assert parse_bgp("hostname sw1\n", "% BGP not active").sessions == []
+
+
+def test_bgp_local_addresses():
+    from config_officer.collection.parsers import parse_bgp_local_addresses
+
+    iosxe = parse_bgp_local_addresses(
+        (FIXTURES / "iosxe" / "show_bgp_all_neighbors_include.txt").read_text()
+    )
+    assert iosxe[(None, "10.0.0.254")] == "10.0.0.253"
+    assert iosxe[(None, "2001:db8:1234:5678::2")] == "2001:db8:1234:5678::1"
+    assert ("CUST", "10.1.1.2") not in iosxe  # not established: no local host
+    nxos = parse_bgp_local_addresses(
+        (FIXTURES / "nxos" / "show_bgp_ipv4_unicast_neighbors_vrf_all.txt").read_text()
+    )
+    assert nxos == {(None, "10.0.1.253"): "10.0.1.1"}
+
+    merged = parse_bgp(
+        (FIXTURES / "iosxe" / "running_config.txt").read_text(),
+        (FIXTURES / "iosxe" / "show_bgp_all_summary.txt").read_text(),
+        (FIXTURES / "iosxe" / "show_bgp_all_neighbors_include.txt").read_text(),
+    )
+    assert {s.peer: s.local_address for s in merged.sessions}["192.0.2.2"] == "10.255.0.1"
+
+
+def test_nxos_svi_vrf_comes_from_the_running_config():
+    raw = output("nxos", show_version="show_version.txt", show_interfaces="show_interface.txt")
+    raw.running_config = (FIXTURES / "nxos" / "running_config.txt").read_text()
+    device = parse_device_output("nxos", raw, mgmt_ip="10.0.1.1")
+    svi = device.interfaces["Vlan100"]
+    assert (svi.ip, svi.vrf) == ("10.2.2.1/30", "PROD")

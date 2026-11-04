@@ -44,6 +44,7 @@ class CommandSet:
     cdp: str | None = "show cdp neighbors detail"
     lldp: str | None = "show lldp neighbors detail"
     bgp: tuple[str, ...] = ()  # several commands: their outputs are concatenated
+    bgp_neighbors: tuple[str, ...] = ()  # for the local address of each session
     running_config: str = "show running-config"
 
 
@@ -55,6 +56,7 @@ COMMANDS = {
         vlans="show vlan brief",
         switchport="show interfaces switchport",
         bgp=("show bgp all summary",),
+        bgp_neighbors=("show bgp all neighbors | include BGP neighbor is|Local host",),
     ),
     "nxos": CommandSet(
         "show version",
@@ -63,12 +65,17 @@ COMMANDS = {
         vlans="show vlan brief",
         switchport="show interface switchport",
         bgp=("show bgp ipv4 unicast summary vrf all", "show bgp ipv6 unicast summary vrf all"),
+        bgp_neighbors=(
+            "show bgp ipv4 unicast neighbors vrf all",
+            "show bgp ipv6 unicast neighbors vrf all",
+        ),
     ),
     "iosxr": CommandSet(
         "show version",
         "show interfaces",
         None,
         bgp=("show bgp all all summary", "show bgp vrf all summary"),
+        bgp_neighbors=("show bgp neighbors", "show bgp vrf all neighbors"),
     ),
 }
 
@@ -83,6 +90,7 @@ OPTIONAL_COMMANDS = (
     ("cdp", "show_cdp", "collect_neighbors"),
     ("lldp", "show_lldp", "collect_neighbors"),
     ("bgp", "show_bgp", "collect_bgp"),
+    ("bgp_neighbors", "show_bgp_neighbors", "collect_bgp"),
 )
 
 
@@ -102,6 +110,7 @@ class DeviceOutput:
     show_cdp: str = ""
     show_lldp: str = ""
     show_bgp: str = ""
+    show_bgp_neighbors: str = ""
     attempts: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     unsupported: list[str] = field(default_factory=list)  # optional commands the device rejected

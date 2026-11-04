@@ -20,7 +20,7 @@ What is synchronised (all inside one database transaction per device):
 * cables to CDP/LLDP neighbors (when ``CREATE_CABLES``), see neighbors.py;
 * netbox-bgp sessions (when ``SYNC_BGP_SESSIONS``), see bgp.py.
 
-VLAN interfaces (SVIs) are skipped.
+VLAN interfaces (SVIs) are synced as virtual interfaces with their IPs, without MAC.
 """
 
 from __future__ import annotations
@@ -182,6 +182,10 @@ def infer_interface_type(name: str) -> str:
         if re.match(pattern, lowered):
             return if_type
     return InterfaceTypeChoices.TYPE_OTHER
+
+
+def _is_svi(name: str) -> bool:
+    return bool(re.match(r"^vlan\d", name.lower()))
 
 
 def _is_lag_name(name: str) -> bool:
@@ -406,12 +410,10 @@ def _sync_interfaces(
         _ensure_lags(device, parsed, existing, report)
 
     for name, item in parsed.items():
-        if name.lower().startswith("vlan"):
-            continue  # SVIs are not modelled yet
         if _is_lag_name(name) and not sync_lags:
             continue
         interface = _sync_interface(device, item, existing, report)
-        if item.mac:
+        if item.mac and not _is_svi(name):  # every SVI shows the same chassis MAC
             _sync_mac(interface, item.mac, report)
         _sync_ip_addresses(device, interface, item, report)
 

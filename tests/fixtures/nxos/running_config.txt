@@ -6,6 +6,11 @@ version 9.3(8) Bios:version 07.69
 hostname nx1
 feature bgp
 
+interface Vlan100
+  no shutdown
+  vrf member PROD
+  ip address 10.2.2.1/30
+
 router bgp 65100
   router-id 10.0.1.1
   template peer SPINES

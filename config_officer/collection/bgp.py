@@ -13,9 +13,14 @@ stored with its collection result (``Collection.details["bgp"]``). This module:
 Creating a session needs, in NetBox:
 
 * both ASNs - missing ones are only created when ``BGP_ASN_RIR`` names the RIR to use;
-* the local address - the IP of the ``update-source`` interface, or a device IP
-  in the peer's subnet;
-* the remote address - created as a /32 (/128) in the session's VRF when missing.
+* the local address, in this order: the IP of the ``update-source`` interface;
+  the "Local host" the device reports (created as /32 or /128 when NetBox does
+  not have it yet); a device IP in the peer's subnet;
+* the remote address - created as /32 (/128) in the session's VRF when missing.
+
+When a session still cannot be written (e.g. it is down, so the device reports no
+local address), the peer's IP is created anyway, with a description naming the
+device, AS and neighbor description, so NetBox keeps a trace of it.
 
 netbox-bgp is imported lazily: without it the tab still shows the sessions.
 """
@@ -140,36 +145,69 @@ def _get_vrf(name: str):
     return vrf
 
 
-def _local_address(device, session: ParsedBgpSession, vrf) -> IPAddress:
+def _create_ip(host: str, vrf, device, description: str) -> IPAddress:
+    """A host address (/32 or /128) NetBox does not know yet."""
+    length = 32 if netaddr.IPAddress(host).version == 4 else 128
+    ip = IPAddress(
+        address=netaddr.IPNetwork(f"{host}/{length}"),
+        vrf=vrf,
+        tenant=device.tenant,
+        description=description[:200],
+    )
+    ip.save()
+    return ip
+
+
+def _local_address(device, session: ParsedBgpSession, vrf) -> tuple[IPAddress, bool]:
+    """(local address, created?) - see the module docstring for the order."""
     device_ips = IPAddress.objects.filter(interface__device=device)
     if session.update_source:
         ip = device_ips.filter(interface__name__iexact=session.update_source).first()
         if ip is not None:
-            return ip
-    peer = netaddr.IPAddress(session.peer)
-    for ip in device_ips.filter(vrf=vrf):
-        if ip.address.version == peer.version and peer in ip.address:
-            return ip
-    raise _Skip("local address unknown (no update-source IP and no device IP in the peer's subnet)")
-
-
-def _remote_address(device, session: ParsedBgpSession, vrf) -> IPAddress:
-    ip = IPAddress.objects.filter(address__net_host=session.peer, vrf=vrf).first()
-    if ip is None:
-        length = 32 if netaddr.IPAddress(session.peer).version == 4 else 128
-        ip = IPAddress(
-            address=netaddr.IPNetwork(f"{session.peer}/{length}"),
-            vrf=vrf,
-            tenant=device.tenant,
-            description=f"BGP peer of {device.name} (Config Officer)",
+            return ip, False
+    if session.local_address:
+        ip = (
+            device_ips.filter(address__net_host=session.local_address).first()
+            or IPAddress.objects.filter(address__net_host=session.local_address, vrf=vrf).first()
         )
-        ip.save()
-    return ip
+        if ip is not None:
+            return ip, False
+        return _create_ip(
+            session.local_address,
+            vrf,
+            device,
+            f"BGP local address of {device.name} (Config Officer)",
+        ), True
+    peer = netaddr.IPAddress(session.peer)
+    for candidates in (device_ips.filter(vrf=vrf), device_ips):  # same VRF first
+        for ip in candidates:
+            if ip.address.version == peer.version and peer in ip.address:
+                return ip, False
+    raise _Skip(
+        "local address unknown - the device reports none (session down?) and no device IP is in the peer's subnet"
+    )
+
+
+def _peer_description(device, session: ParsedBgpSession) -> str:
+    text = f"BGP peer of {device.name}"
+    if session.remote_as:
+        text += f" (AS{session.remote_as})"
+    if session.description:
+        text += f": {session.description}"
+    return f"{text} - Config Officer"
+
+
+def _remote_address(device, session: ParsedBgpSession, vrf) -> tuple[IPAddress, bool]:
+    ip = IPAddress.objects.filter(address__net_host=session.peer, vrf=vrf).first()
+    if ip is not None:
+        return ip, False
+    return _create_ip(session.peer, vrf, device, _peer_description(device, session)), True
 
 
 def _sync_session(
     device, session: ParsedBgpSession, local_as_number, settings
-) -> tuple[str, list[str]]:
+) -> tuple[str, list[str], list[str]]:
+    """Returns (created | updated | unchanged, changed fields, IP addresses created)."""
     from netbox_bgp.models import BGPSession
 
     if session.remote_as is None:
@@ -184,13 +222,15 @@ def _sync_session(
 
     existing = find_netbox_session(device, asdict(session))
     if existing is None:
+        local_ip, local_created = _local_address(device, session, vrf)
+        remote_ip, remote_created = _remote_address(device, session, vrf)
         created = BGPSession(
             name=session.description or session.peer,
             device=device,
             site=device.site,
             tenant=device.tenant,
-            local_address=_local_address(device, session, vrf),
-            remote_address=_remote_address(device, session, vrf),
+            local_address=local_ip,
+            remote_address=remote_ip,
             local_as=local_as,
             remote_as=remote_as,
             status=status,
@@ -198,7 +238,15 @@ def _sync_session(
         )
         created.full_clean()
         created.save()
-        return "created", []
+        new_ips = [
+            f"{ip.address} (BGP {role})"
+            for ip, new, role in (
+                (local_ip, local_created, "local"),
+                (remote_ip, remote_created, "peer"),
+            )
+            if new
+        ]
+        return "created", [], new_ips
 
     existing.snapshot()
     changes = []
@@ -216,7 +264,17 @@ def _sync_session(
     if changes:
         existing.full_clean()
         existing.save()
-    return ("updated" if changes else "unchanged"), changes
+    return ("updated" if changes else "unchanged"), changes, []
+
+
+def _record_peer(device, session: ParsedBgpSession) -> str:
+    """Create the peer's IP (if missing) so NetBox keeps a trace of a session it does not have."""
+    try:
+        with transaction.atomic():
+            ip, created = _remote_address(device, session, _get_vrf(session.vrf))
+    except (_Skip, ValidationError):
+        return ""
+    return str(ip.address) if created else ""
 
 
 def sync_sessions(device, bgp: ParsedBgp, settings: PluginSettings, report) -> None:
@@ -230,13 +288,17 @@ def sync_sessions(device, bgp: ParsedBgp, settings: PluginSettings, report) -> N
         label = session.peer + (f" (VRF {session.vrf})" if session.vrf else "")
         try:
             with transaction.atomic():  # a skipped session leaves no half-created ASN or IP behind
-                result, changes = _sync_session(device, session, bgp.local_as, settings)
-        except _Skip as exc:
-            report.warnings.append(f"BGP session {label} not synced: {exc}")
-        except ValidationError as exc:
-            report.warnings.append(f"BGP session {label} not synced: {'; '.join(exc.messages)}")
-        else:
-            if result == "created":
-                report.bgp_sessions_created.append(label)
-            elif result == "updated":
-                report.bgp_sessions_updated.append(f"{label}: {', '.join(changes)}")
+                result, changes, new_ips = _sync_session(device, session, bgp.local_as, settings)
+        except (_Skip, ValidationError) as exc:
+            reason = "; ".join(exc.messages) if isinstance(exc, ValidationError) else str(exc)
+            recorded = _record_peer(device, session)
+            if recorded:
+                report.ip_addresses_created.append(f"{recorded} (BGP peer, no session)")
+                reason += f"; peer IP {recorded} recorded in NetBox"
+            report.warnings.append(f"BGP session {label} not created: {reason}")
+            continue
+        report.ip_addresses_created.extend(new_ips)
+        if result == "created":
+            report.bgp_sessions_created.append(label)
+        elif result == "updated":
+            report.bgp_sessions_updated.append(f"{label}: {', '.join(changes)}")

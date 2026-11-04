@@ -21,3 +21,7 @@ admin state is up,
   Description: to-spine1 (LAG)
   MTU 9216 bytes, BW 10000000 Kbit , DLY 10 usec
   full-duplex, 10 Gb/s
+Vlan100 is up, line protocol is up, autostate enabled
+  Hardware is EtherSVI, address is  00aa.bbcc.0199
+  Internet Address is 10.2.2.1/30
+  MTU 1500 bytes, BW 1000000 Kbit, DLY 10 usec

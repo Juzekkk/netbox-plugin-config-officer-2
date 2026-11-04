@@ -17,6 +17,7 @@
         <tr>
           <th>{% trans "VRF" %}</th>
           <th>{% trans "Peer" %}</th>
+          <th>{% trans "Local address" %}</th>
           <th>{% trans "Remote AS" %}</th>
           <th>{% trans "Description" %}</th>
           <th>{% trans "State" %}</th>
@@ -30,6 +31,7 @@
           <tr>
             <td>{{ m.session.vrf|default:"global" }}</td>
             <td class="font-monospace">{{ m.session.peer }}</td>
+            <td class="font-monospace">{{ m.session.local_address|placeholder }}</td>
             <td>{{ m.session.remote_as|placeholder }}</td>
             <td>{{ m.session.description|placeholder }}</td>
             <td>
@@ -52,7 +54,7 @@
             {% endif %}
           </tr>
         {% empty %}
-          <tr><td colspan="8" class="text-secondary">{% trans "No BGP sessions were found on the device." %}</td></tr>
+          <tr><td colspan="9" class="text-secondary">{% trans "No BGP sessions were found on the device." %}</td></tr>
         {% endfor %}
       </tbody>
     </table>

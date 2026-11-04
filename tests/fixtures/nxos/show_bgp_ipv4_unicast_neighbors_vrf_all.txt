@@ -1,0 +1,15 @@
+BGP neighbor is 10.0.1.253, remote AS 65000, ebgp link, Peer index 3
+  BGP version 4, remote router ID 10.0.1.253
+  BGP state = Established, up for 2w0d
+  Using loopback0 as update source for this peer
+  Last read 00:00:28, hold time = 180, keepalive interval is 60 seconds
+  Local host: 10.0.1.1, Local port: 179
+  Foreign host: 10.0.1.253, Foreign port: 47512
+
+BGP neighbor is 10.0.1.254, remote AS 65000, ebgp link, Peer index 4
+  BGP version 4, remote router ID 0.0.0.0
+  BGP state = Idle, down for 00:10:00, retry in 00:00:20
+
+BGP neighbor is 10.2.2.2, remote AS 65200, ebgp link, Peer index 1
+  BGP version 4, remote router ID 0.0.0.0
+  BGP state = Shut (Admin), down for 00:00:00

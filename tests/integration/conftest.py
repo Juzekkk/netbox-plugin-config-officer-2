@@ -35,6 +35,7 @@ IOSXE_COMMANDS = {
     "show cdp neighbors detail": "show_cdp_neighbors_detail.txt",
     "show lldp neighbors detail": "show_lldp_neighbors_detail.txt",
     "show bgp all summary": "show_bgp_all_summary.txt",
+    "show bgp all neighbors | include BGP neighbor is|Local host": "show_bgp_all_neighbors_include.txt",
 }
 
 
