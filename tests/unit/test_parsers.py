@@ -215,3 +215,57 @@ def test_neighbors_nxos():
         "Ethernet1/2",
         "10.0.1.253",
     )
+
+
+# ---------------------------------------------------------------------------
+# BGP
+# ---------------------------------------------------------------------------
+
+from config_officer.collection.parsers import parse_asn, parse_bgp  # noqa: E402
+
+
+def test_parse_asn():
+    assert (parse_asn("65001"), parse_asn("1.10")) == (65001, 65546)
+
+
+def bgp(platform, summary):
+    return parse_bgp(
+        (FIXTURES / platform / "running_config.txt").read_text(),
+        (FIXTURES / platform / summary).read_text(),
+    )
+
+
+def test_bgp_iosxe():
+    result = bgp("iosxe", "show_bgp_all_summary.txt")
+    assert (result.local_as, result.router_id) == (65001, "10.0.0.1")
+    sessions = {(s.vrf, s.peer): s for s in result.sessions}
+
+    uplink = sessions[("", "10.0.0.254")]
+    assert (uplink.remote_as, uplink.description, uplink.state, uplink.prefixes_received) == (
+        65000,
+        "core1 uplink",
+        "Established",
+        12,
+    )
+    rr = sessions[("", "192.0.2.2")]  # remote-as and update-source come from the peer group
+    assert (rr.remote_as, rr.update_source, rr.description) == (65001, "Loopback0", "rr1")
+    shut = sessions[("", "10.9.9.9")]
+    assert (shut.shutdown, shut.state) == (True, "Idle (Admin)")
+    customer = sessions[("CUST", "10.1.1.2")]  # VRF from the config; the summary does not name it
+    assert (customer.remote_as, customer.state) == (65010, "Active")
+    ipv6 = sessions[("", "2001:db8:1234:5678::2")]  # wrapped summary line; not in the config
+    assert (ipv6.configured, ipv6.remote_as, ipv6.prefixes_received) == (False, 65000, 5)
+
+
+def test_bgp_nxos():
+    result = bgp("nxos", "show_bgp_ipv4_unicast_summary_vrf_all.txt")
+    assert (result.local_as, result.router_id) == (65100, "10.0.1.1")
+    sessions = {(s.vrf, s.peer): s for s in result.sessions}
+    spine1 = sessions[("", "10.0.1.254")]  # "inherit peer SPINES"
+    assert (spine1.remote_as, spine1.update_source, spine1.state) == (65000, "loopback0", "Idle")
+    prod = sessions[("PROD", "10.2.2.2")]
+    assert (prod.shutdown, prod.state, prod.remote_as) == (True, "Shut (Admin)", 65200)
+
+
+def test_no_bgp():
+    assert parse_bgp("hostname sw1\n", "% BGP not active").sessions == []

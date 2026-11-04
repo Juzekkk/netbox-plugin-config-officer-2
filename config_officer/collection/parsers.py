@@ -11,10 +11,12 @@ Supported commands:
 * NX-OS: ``show version``, ``show interface``
 * both: ``show vlan brief``, ``show interface(s) switchport``
 * all platforms: ``show inventory``, ``show cdp neighbors detail``, ``show lldp neighbors detail``
+* BGP: the ``router bgp`` section of the running config plus ``show ... bgp ... summary``
 """
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 import re
 from dataclasses import dataclass, field
@@ -111,6 +113,31 @@ class ParsedNeighbor:
 
 
 @dataclass
+class ParsedBgpSession:
+    """One BGP neighbor: configuration (running config) merged with state (summary)."""
+
+    peer: str  # neighbor IP address
+    vrf: str = ""  # "" = global / default VRF
+    remote_as: int | None = None
+    local_as: int | None = None  # only when the neighbor overrides it ("local-as")
+    description: str = ""
+    shutdown: bool = False
+    update_source: str = ""  # interface name
+    configured: bool = False  # found in the running config
+    state: str = ""  # "Established", "Idle", "Active", "Idle (Admin)"...; "" = not in the summary
+    prefixes_received: int | None = None
+    uptime: str = ""
+    group: str = ""  # peer-group / template / neighbor-group the neighbor inherits from
+
+
+@dataclass
+class ParsedBgp:
+    local_as: int | None = None
+    router_id: str = ""
+    sessions: list[ParsedBgpSession] = field(default_factory=list)
+
+
+@dataclass
 class ParsedDevice:
     """Everything parsed from one device session."""
 
@@ -123,6 +150,7 @@ class ParsedDevice:
     switchports: dict[str, ParsedSwitchport] = field(default_factory=dict)
     inventory: list[ParsedInventoryItem] = field(default_factory=list)
     neighbors: list[ParsedNeighbor] = field(default_factory=list)
+    bgp: ParsedBgp = field(default_factory=ParsedBgp)
 
 
 # ---------------------------------------------------------------------------
@@ -642,6 +670,214 @@ def merge_neighbors(*sources: list[ParsedNeighbor]) -> list[ParsedNeighbor]:
 
 
 # ---------------------------------------------------------------------------
+# BGP
+# ---------------------------------------------------------------------------
+
+
+def parse_asn(value: str) -> int:
+    """'65001' -> 65001; asdot '1.10' -> 65546."""
+    if "." in value:
+        high, low = value.split(".", 1)
+        return int(high) * 65536 + int(low)
+    return int(value)
+
+
+def _is_ip(value: str) -> bool:
+    try:
+        ipaddress.ip_address(value)
+        return True
+    except ValueError:
+        return False
+
+
+def _apply_bgp_attribute(target: ParsedBgpSession, words: list[str]) -> None:
+    """Apply one neighbor setting, e.g. ['remote-as', '65000'] or ['inherit', 'peer', 'SPINES']."""
+    key = words[0] if words else ""
+    if key == "remote-as" and len(words) > 1 and re.fullmatch(r"\d+(?:\.\d+)?", words[1]):
+        target.remote_as = parse_asn(words[1])
+    elif key == "local-as" and len(words) > 1 and re.fullmatch(r"\d+(?:\.\d+)?", words[1]):
+        target.local_as = parse_asn(words[1])
+    elif key == "description" and len(words) > 1:
+        target.description = " ".join(words[1:])
+    elif key == "shutdown":
+        target.shutdown = True
+    elif key == "update-source" and len(words) > 1:
+        target.update_source = expand_interface_name(words[1])
+    elif key == "peer-group" and len(words) > 1:  # IOS-XE: neighbor <ip> peer-group <name>
+        target.group = words[1]
+    elif (
+        words[:2] in (["inherit", "peer"], ["use", "neighbor-group"]) and len(words) > 2
+    ):  # NX-OS / IOS-XR
+        target.group = words[2]
+
+
+def _router_bgp_block(config: str) -> tuple[str, list[str]]:
+    """('65001', lines of the ``router bgp 65001`` section) or ('', [])."""
+    lines = config.splitlines()
+    for index, line in enumerate(lines):
+        if re.match(r"^router bgp \S+", line):
+            block = []
+            for raw in lines[index + 1 :]:
+                if raw[:1] not in (" ", "\t", "!", ""):
+                    break  # next top-level section
+                block.append(raw)
+            return line.split()[2], block
+    return "", []
+
+
+def _bgp_context(words: list[str], line: str) -> tuple[str, str] | None:
+    """('vrf', name) or ('group', name) when the line opens such a context."""
+    if m := re.match(r"^address-family \S+(?: \S+)? vrf (\S+)", line):  # IOS-XE
+        return "vrf", m.group(1)
+    if words[0] == "vrf" and len(words) == 2:  # NX-OS / IOS-XR
+        return "vrf", words[1]
+    if words[:2] == ["template", "peer"] and len(words) == 3:  # NX-OS
+        return "group", words[2]
+    if words[0] == "neighbor-group" and len(words) == 2:  # IOS-XR
+        return "group", words[1]
+    return None
+
+
+def _bgp_neighbor(name: str, vrf: str, sessions: dict, groups: dict) -> ParsedBgpSession:
+    if _is_ip(name):
+        key = (vrf, name.lower())
+        return sessions.setdefault(
+            key, ParsedBgpSession(peer=name.lower(), vrf=vrf, configured=True)
+        )
+    return groups.setdefault(name, ParsedBgpSession(peer=name))  # IOS-XE "neighbor IBGP peer-group"
+
+
+def _inherit_from_groups(sessions: dict, groups: dict) -> None:
+    for session in sessions.values():
+        group = groups.get(session.group)
+        if group is not None:
+            session.remote_as = session.remote_as or group.remote_as
+            session.update_source = session.update_source or group.update_source
+            session.description = session.description or group.description
+            session.shutdown = session.shutdown or group.shutdown
+
+
+def parse_bgp_config(config: str) -> ParsedBgp:
+    """The ``router bgp`` section of a running config.
+
+    Handles the flat IOS-XE style (``neighbor 10.0.0.2 remote-as 65002``, peer
+    groups, ``address-family ipv4 vrf X``) and the block style of NX-OS / IOS-XR
+    (``neighbor 10.0.0.2`` with indented settings, ``template peer`` /
+    ``neighbor-group``, ``vrf X``). Indentation decides what belongs to what.
+    """
+    asn, block = _router_bgp_block(config)
+    if not asn:
+        return ParsedBgp()
+    bgp = ParsedBgp(local_as=parse_asn(asn))
+    sessions: dict[tuple[str, str], ParsedBgpSession] = {}
+    groups: dict[str, ParsedBgpSession] = {}
+    stack: list[tuple[int, str, object]] = []  # open contexts: (indent, "vrf" | "owner", value)
+
+    for raw in block:
+        line = raw.strip()
+        if not line or line.startswith("!"):
+            continue
+        indent = len(raw) - len(raw.lstrip())
+        while stack and stack[-1][0] >= indent:
+            stack.pop()
+        vrf = next((value for _, kind, value in reversed(stack) if kind == "vrf"), "")
+        owner = next((value for _, kind, value in reversed(stack) if kind == "owner"), None)
+        words = line.split()
+
+        if context := _bgp_context(words, line):
+            kind, name = context
+            value = name if kind == "vrf" else groups.setdefault(name, ParsedBgpSession(peer=name))
+            stack.append((indent, "vrf" if kind == "vrf" else "owner", value))
+        elif words[0] == "neighbor" and len(words) >= 2:
+            target = _bgp_neighbor(words[1], vrf, sessions, groups)
+            if len(words) == 2:
+                stack.append((indent, "owner", target))  # block style: settings follow, indented
+            else:
+                _apply_bgp_attribute(target, words[2:])
+        elif owner is not None:
+            _apply_bgp_attribute(owner, words)
+        elif words[:2] == ["bgp", "router-id"] or words[0] == "router-id":
+            bgp.router_id = words[-1]
+
+    _inherit_from_groups(sessions, groups)
+    bgp.sessions = sorted(sessions.values(), key=lambda s: (s.vrf, s.peer))
+    return bgp
+
+
+_BGP_SUMMARY_ROW = re.compile(
+    r"^(?P<peer>[0-9A-Fa-f:.]+)\s+(?:\d+\s+)?(?P<asn>\d+(?:\.\d+)?)"
+    r"(?:\s+\d+){5}\s+(?P<updown>\S+)\s+(?P<state>\S.*?)\s*$"
+)
+
+
+def _summary_vrf(line: str) -> str | None:
+    """VRF named by a summary header (NX-OS / IOS-XR), '' for the default VRF; None if none."""
+    m = re.search(r"BGP summary information for VRF (\S+?),", line) or re.match(
+        r"^VRF: (\S+)", line
+    )
+    if not m:
+        return None
+    return "" if m.group(1) == "default" else m.group(1)
+
+
+def parse_bgp_summary(output: str) -> tuple[int | None, dict[tuple[str | None, str], dict]]:
+    """``show bgp ... summary`` tables -> (local AS, {(vrf, peer): state}).
+
+    The VRF is None when the output does not name it (IOS-XE "show bgp all summary").
+    A numeric last column means the session is established (it is the number of
+    received prefixes); otherwise it is the state, e.g. "Idle (Admin)".
+    """
+    local_as: int | None = None
+    rows: dict[tuple[str | None, str], dict] = {}
+    vrf: str | None = None
+    wrapped_peer = ""
+    for raw in output.splitlines():
+        if (header_vrf := _summary_vrf(raw)) is not None:
+            vrf = header_vrf
+            continue
+        if m := re.search(r"local AS number (\d+(?:\.\d+)?)", raw):
+            local_as = local_as or parse_asn(m.group(1))
+            continue
+        line = f"{wrapped_peer} {raw.strip()}" if wrapped_peer and raw[:1].isspace() else raw
+        wrapped_peer = ""
+        if _is_ip(line.strip()):  # a long IPv6 address alone; its columns follow on the next line
+            wrapped_peer = line.strip()
+            continue
+        m = _BGP_SUMMARY_ROW.match(line)
+        if not m or not _is_ip(m.group("peer")):
+            continue
+        state = m.group("state")
+        rows[(vrf, m.group("peer").lower())] = {
+            "remote_as": parse_asn(m.group("asn")),
+            "uptime": m.group("updown"),
+            "state": "Established" if state.isdigit() else state,
+            "prefixes_received": int(state) if state.isdigit() else None,
+        }
+    return local_as, rows
+
+
+def parse_bgp(running_config: str, summary: str) -> ParsedBgp:
+    """Configuration and state of every BGP neighbor of the device."""
+    bgp = parse_bgp_config(running_config)
+    summary_as, rows = parse_bgp_summary(summary)
+    sessions = {(s.vrf, s.peer): s for s in bgp.sessions}
+    for (vrf, peer), row in rows.items():
+        if vrf is None:  # the summary does not name the VRF: use the configuration's
+            candidates = [key for key in sessions if key[1] == peer]
+            key = candidates[0] if len(candidates) == 1 else ("", peer)
+        else:
+            key = (vrf, peer)
+        session = sessions.setdefault(key, ParsedBgpSession(peer=peer, vrf=key[0]))
+        session.state = row["state"]
+        session.uptime = row["uptime"]
+        session.prefixes_received = row["prefixes_received"]
+        session.remote_as = session.remote_as or row["remote_as"]
+    bgp.local_as = bgp.local_as or summary_as
+    bgp.sessions = sorted(sessions.values(), key=lambda s: (s.vrf, s.peer))
+    return bgp
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -664,6 +900,9 @@ def parse_device_output(driver: str, output, mgmt_ip: str) -> ParsedDevice:
     device.vlans = parse_vlan_brief(getattr(output, "show_vlan", "") or "")
     device.switchports = parse_switchport(getattr(output, "show_switchport", "") or "")
     device.inventory = parse_inventory(getattr(output, "show_inventory", "") or "")
+    device.bgp = parse_bgp(
+        getattr(output, "running_config", "") or "", getattr(output, "show_bgp", "") or ""
+    )
     device.neighbors = merge_neighbors(
         parse_cdp_neighbors(getattr(output, "show_cdp", "") or ""),
         parse_lldp_neighbors(getattr(output, "show_lldp", "") or ""),

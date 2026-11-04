@@ -43,6 +43,7 @@ class CommandSet:
     inventory: str | None = "show inventory"
     cdp: str | None = "show cdp neighbors detail"
     lldp: str | None = "show lldp neighbors detail"
+    bgp: tuple[str, ...] = ()  # several commands: their outputs are concatenated
     running_config: str = "show running-config"
 
 
@@ -53,6 +54,7 @@ COMMANDS = {
         "show ip interface",
         vlans="show vlan brief",
         switchport="show interfaces switchport",
+        bgp=("show bgp all summary",),
     ),
     "nxos": CommandSet(
         "show version",
@@ -60,8 +62,14 @@ COMMANDS = {
         None,
         vlans="show vlan brief",
         switchport="show interface switchport",
+        bgp=("show bgp ipv4 unicast summary vrf all", "show bgp ipv6 unicast summary vrf all"),
     ),
-    "iosxr": CommandSet("show version", "show interfaces", None),
+    "iosxr": CommandSet(
+        "show version",
+        "show interfaces",
+        None,
+        bgp=("show bgp all all summary", "show bgp vrf all summary"),
+    ),
 }
 
 #: Optional data: (CommandSet attribute, DeviceOutput attribute, setting that enables it).
@@ -74,6 +82,7 @@ OPTIONAL_COMMANDS = (
     ("inventory", "show_inventory", "collect_inventory"),
     ("cdp", "show_cdp", "collect_neighbors"),
     ("lldp", "show_lldp", "collect_neighbors"),
+    ("bgp", "show_bgp", "collect_bgp"),
 )
 
 
@@ -92,6 +101,7 @@ class DeviceOutput:
     show_inventory: str = ""
     show_cdp: str = ""
     show_lldp: str = ""
+    show_bgp: str = ""
     attempts: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     unsupported: list[str] = field(default_factory=list)  # optional commands the device rejected
@@ -186,15 +196,19 @@ def _run_session(
             raise _SessionError(CollectFailChoices.FAIL_CONFIG, exc) from exc
 
         for command_attr, output_attr, setting in OPTIONAL_COMMANDS:
-            command = getattr(commands, command_attr)
-            if not command or not getattr(settings, setting):
+            configured = getattr(commands, command_attr)
+            if not configured or not getattr(settings, setting):
                 continue
-            try:
-                optional[output_attr] = _send(connection, command)
-            except CommandRejected:
-                unsupported.append(command)
-            except Exception as exc:
-                warnings.append(f"{command!r} failed: {exc}")
+            outputs = []
+            for command in (configured,) if isinstance(configured, str) else configured:
+                try:
+                    outputs.append(_send(connection, command))
+                except CommandRejected:
+                    unsupported.append(command)
+                except Exception as exc:
+                    warnings.append(f"{command!r} failed: {exc}")
+            if outputs:
+                optional[output_attr] = "\n".join(outputs)
     finally:
         try:
             connection.close()

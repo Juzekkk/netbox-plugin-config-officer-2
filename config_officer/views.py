@@ -39,6 +39,7 @@ from utilities.views import (
 
 from . import filtersets, forms, jobs, tables
 from .choices import CollectStatusChoices
+from .collection.bgp import match_sessions, netbox_bgp_installed
 from .collection.neighbors import NO_CABLE, create_cable, match_neighbors
 from .collection.netbox_sync import SyncReport
 from .collection.targets import DeviceSelection
@@ -196,14 +197,24 @@ class CollectionView(generic.ObjectView):
         return {"changes": changes, "report": report}
 
 
-def latest_neighbors(device) -> tuple[Collection | None, list[dict]]:
-    """Neighbors stored with the device's latest successful collection."""
+def latest_result_with(device, key: str) -> tuple[Collection | None, object]:
+    """The device's latest successful collection that stored ``details[key]``, and that value."""
     result = (
         Collection.objects.filter(device=device, status=CollectStatusChoices.STATUS_SUCCEEDED)
-        .filter(details__has_key="neighbors")
+        .filter(details__has_key=key)
         .first()
     )
-    return result, (result.details["neighbors"] if result else [])
+    return result, (result.details[key] if result else None)
+
+
+def latest_neighbors(device) -> tuple[Collection | None, list[dict]]:
+    result, neighbors = latest_result_with(device, "neighbors")
+    return result, neighbors or []
+
+
+def latest_bgp(device) -> tuple[Collection | None, dict]:
+    result, bgp = latest_result_with(device, "bgp")
+    return result, bgp or {}
 
 
 @register_model_view(Collection, "delete")
@@ -324,6 +335,32 @@ class DeviceNeighborsView(generic.ObjectView):
             "result": result,
             "matches": match_neighbors(instance, neighbors),
             "can_add_cable": request.user.has_perm("dcim.add_cable"),
+        }
+
+
+@register_model_view(Device, name="config_officer_bgp", path="config-officer/bgp")
+class DeviceBgpView(generic.ObjectView):
+    """Device tab: BGP sessions (configuration + state) compared with netbox-bgp."""
+
+    queryset = Device.objects.all()
+    template_name = "config_officer/device_bgp.html"
+    tab = ViewTab(
+        label=_("BGP"),
+        permission="config_officer.view_collection",
+        weight=2107,
+        badge=lambda device: len(latest_bgp(device)[1].get("sessions", [])),
+        hide_if_empty=True,
+    )
+
+    def get_extra_context(self, request, instance):
+        result, bgp = latest_bgp(instance)
+        matches, only_in_netbox = match_sessions(instance, bgp.get("sessions", []))
+        return {
+            "result": result,
+            "bgp": bgp,
+            "matches": matches,
+            "only_in_netbox": only_in_netbox,
+            "netbox_bgp": netbox_bgp_installed(),
         }
 
 

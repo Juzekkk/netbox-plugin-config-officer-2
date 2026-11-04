@@ -17,7 +17,8 @@ What is synchronised (all inside one database transaction per device):
 * IPv4 addresses (primary and secondary) with VRF, role and DHCP status;
 * VLANs and 802.1Q interface modes (when ``COLLECT_VLANS``), see :func:`_sync_vlans`;
 * inventory items from ``show inventory`` (when ``COLLECT_INVENTORY``), see :func:`_sync_inventory`;
-* cables to CDP/LLDP neighbors (when ``CREATE_CABLES``), see neighbors.py.
+* cables to CDP/LLDP neighbors (when ``CREATE_CABLES``), see neighbors.py;
+* netbox-bgp sessions (when ``SYNC_BGP_SESSIONS``), see bgp.py.
 
 VLAN interfaces (SVIs) are skipped.
 """
@@ -42,6 +43,7 @@ from netaddr import EUI, AddrFormatError, IPNetwork
 from config_officer.choices import CollectFailChoices, TransportChoices
 from config_officer.configuration import PluginSettings
 
+from .bgp import sync_sessions as sync_bgp_sessions
 from .connection import CollectionError
 from .neighbors import NO_CABLE, create_cable, match_neighbors
 from .parsers import ParsedDevice, ParsedInterface, ParsedSwitchport, expand_interface_name
@@ -68,6 +70,8 @@ class SyncReport:
     inventory_updated: list[str] = field(default_factory=list)
     inventory_removed: list[str] = field(default_factory=list)
     cables_created: list[str] = field(default_factory=list)
+    bgp_sessions_created: list[str] = field(default_factory=list)
+    bgp_sessions_updated: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
     #: (field, label) of every kind of change, in the order shown in summaries.
@@ -85,6 +89,8 @@ class SyncReport:
         ("inventory_updated", "inventory item(s) updated"),
         ("inventory_removed", "inventory item(s) removed"),
         ("cables_created", "cable(s) created"),
+        ("bgp_sessions_created", "BGP session(s) created"),
+        ("bgp_sessions_updated", "BGP session(s) updated"),
     )
 
     def summary(self) -> str:
@@ -614,4 +620,6 @@ def sync_device(
             _sync_inventory(device, parsed, existing, report)
         if settings.collect_neighbors and settings.create_cables and parsed.neighbors:
             _sync_cables(device, parsed, report)
+        if settings.collect_bgp and settings.sync_bgp_sessions and parsed.bgp.sessions:
+            sync_bgp_sessions(device, parsed.bgp, settings, report)
     return report

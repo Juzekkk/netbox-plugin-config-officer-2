@@ -18,6 +18,31 @@ interface GigabitEthernet1/0/1
  description uplink to core
  mtu 9000
 !
+router bgp 65001
+ bgp router-id 10.0.0.1
+ bgp log-neighbor-changes
+ neighbor IBGP peer-group
+ neighbor IBGP remote-as 65001
+ neighbor IBGP update-source Loopback0
+ neighbor 10.0.0.254 remote-as 65000
+ neighbor 10.0.0.254 description core1 uplink
+ neighbor 10.0.0.254 password 7 104D000A0618
+ neighbor 192.0.2.2 peer-group IBGP
+ neighbor 192.0.2.2 description rr1
+ neighbor 10.9.9.9 remote-as 65099
+ neighbor 10.9.9.9 shutdown
+ !
+ address-family ipv4
+  neighbor 10.0.0.254 activate
+  neighbor 192.0.2.2 activate
+ exit-address-family
+ !
+ address-family ipv4 vrf CUST
+  neighbor 10.1.1.2 remote-as 65010
+  neighbor 10.1.1.2 description customer-ce
+  neighbor 10.1.1.2 activate
+ exit-address-family
+!
 ntp server 1.1.1.1
 line vty 0 4
  password 7 0822455D0A16

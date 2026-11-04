@@ -88,6 +88,8 @@ addopts = ["--tb=short", "--strict-markers", "-p", "no:cacheprovider"]
 filterwarnings = [
     # third-party (django-taggit) deprecation, not ours
     "ignore:SQLCompiler.quote_name_unless_alias",
+    # netbox-bgp's own GraphQL code (installed for the BGP tests)
+    "ignore::DeprecationWarning:netbox_bgp",
 ]
 
 # ---------------------------------------------------------------------------
