@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.3.0 (2026-11-04)
+
+### Feat
+
+- **collection**: sync VLANs, inventory and CDP/LLDP neighbors into NetBox
+
+### Fix
+
+- **ci**: skip-existing publication
+
 ## v0.2.1 (2026-11-04)
 
 ### Fix
