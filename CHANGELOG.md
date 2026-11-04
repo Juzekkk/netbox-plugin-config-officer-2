@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.2.1 (2026-11-04)
+
+### Fix
+
+- **parsers**: read NX-OS model names with hyphens and speeds given in Gb/s
+
 ## v0.2.0 (2026-11-03)
 
 A restructuring of the whole plugin: every module now has one job (see "How the code is organised" in the README), the UI uses NetBox's native views, and collection is observable end to end.
