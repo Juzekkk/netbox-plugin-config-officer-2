@@ -1,0 +1,23 @@
+GigabitEthernet0/0 is up, line protocol is up
+  Hardware is RP management port, address is 00aa.bbcc.dd00 (bia 00aa.bbcc.dd00)
+  Description: mgmt
+  Internet address is 10.0.0.1/24
+  MTU 1500 bytes, BW 1000000 Kbit/sec, DLY 10 usec,
+  Full Duplex, 1000Mbps, link type is auto, media type is RJ45
+GigabitEthernet1/0/1 is up, line protocol is up (connected)
+  Hardware is Gigabit Ethernet, address is 00aa.bbcc.dd01 (bia 00aa.bbcc.dd01)
+  Description: uplink to core
+  MTU 9000 bytes, BW 1000000 Kbit/sec, DLY 10 usec,
+  Full-duplex, 1000Mb/s, media type is 10/100/1000BaseTX
+GigabitEthernet1/0/2 is administratively down, line protocol is down (disabled)
+  Hardware is Gigabit Ethernet, address is 00aa.bbcc.dd02 (bia 00aa.bbcc.dd02)
+  MTU 1500 bytes, BW 1000000 Kbit/sec, DLY 10 usec,
+  Auto-duplex, Auto-speed, media type is 10/100/1000BaseTX
+Loopback0 is up, line protocol is up
+  Hardware is Loopback
+  Internet address is 192.0.2.1/32
+  MTU 1514 bytes, BW 8000000 Kbit/sec, DLY 5000 usec,
+Vlan10 is up, line protocol is up
+  Hardware is Ethernet SVI, address is 00aa.bbcc.dd10 (bia 00aa.bbcc.dd10)
+  Internet address is 10.10.0.1/24
+  MTU 1500 bytes, BW 1000000 Kbit/sec, DLY 10 usec,

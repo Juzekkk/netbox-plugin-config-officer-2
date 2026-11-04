@@ -1,0 +1,26 @@
+Building configuration...
+
+Current configuration : 1234 bytes
+!
+! Last configuration change at 10:00:00 UTC Mon Nov 2 2026 by admin
+!
+version 17.9
+hostname sw1
+!
+username admin privilege 15 secret 9 $9$abcdefghijklmnop
+!
+crypto pki certificate chain TP-self-signed-1234
+ certificate self-signed 01
+  3082022B 30820194 A0030201 02020101 300D0609 2A864886 F70D0101 05050030
+  quit
+!
+interface GigabitEthernet1/0/1
+ description uplink to core
+ mtu 9000
+!
+ntp server 1.1.1.1
+line vty 0 4
+ password 7 0822455D0A16
+ transport input ssh
+!
+end

@@ -1,0 +1,7 @@
+GigabitEthernet0/0 is up, line protocol is up
+  Internet address is 10.0.0.1/24
+  VPN Routing/Forwarding "Mgmt-vrf"
+GigabitEthernet1/0/1 is up, line protocol is up
+  Internet protocol processing disabled
+Loopback0 is up, line protocol is up
+  Internet address is 192.0.2.1/32

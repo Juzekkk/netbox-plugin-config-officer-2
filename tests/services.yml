@@ -1,0 +1,12 @@
+# PostgreSQL and Redis for the integration tests: docker compose -f tests/services.yml up -d
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: netbox
+      POSTGRES_PASSWORD: netbox
+      POSTGRES_DB: netbox
+    ports: ["5432:5432"]
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
