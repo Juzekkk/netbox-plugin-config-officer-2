@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.4.0 (2026-11-04)
+
+### Feat
+
+- **collection**: BGP sessions from the running config and the BGP summary
+
+### Fix
+
+- **sanitize**: always remove BGP neighbor passwords from stored configs
+
 ## v0.3.0 (2026-11-04)
 
 ### Feat
