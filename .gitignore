@@ -127,3 +127,9 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Local NetBox checkout for the integration tests (scripts/setup-netbox.sh)
+.netbox/
+# Test reports
+reports/
+.ruff_cache/
