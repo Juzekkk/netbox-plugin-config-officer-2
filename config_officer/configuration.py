@@ -66,6 +66,9 @@ _SCHEMA: dict[str, tuple[type, Any]] = {
     "COLLECT_INVENTORY": (bool, True),
     "COLLECT_NEIGHBORS": (bool, True),
     "CREATE_CABLES": (bool, False),
+    "COLLECT_BGP": (bool, True),
+    "SYNC_BGP_SESSIONS": (bool, False),
+    "BGP_ASN_RIR": (str, ""),
     # Where configs are stored
     "CONFIGS_REPO_DIR": (str, "/device_configs"),
     "CONFIGS_SUBPATH": (str, "netbox"),
@@ -155,6 +158,9 @@ class PluginSettings:
     collect_inventory: bool
     collect_neighbors: bool
     create_cables: bool
+    collect_bgp: bool
+    sync_bgp_sessions: bool
+    bgp_asn_rir: str
     # Storage
     configs_repo_dir: str
     configs_subpath: str
@@ -372,6 +378,9 @@ def load_settings(plugin_config: Mapping | None, environ: Mapping | None = None)
         collect_inventory=values["COLLECT_INVENTORY"],
         collect_neighbors=values["COLLECT_NEIGHBORS"],
         create_cables=values["CREATE_CABLES"],
+        collect_bgp=values["COLLECT_BGP"],
+        sync_bgp_sessions=values["SYNC_BGP_SESSIONS"],
+        bgp_asn_rir=values["BGP_ASN_RIR"],
         configs_repo_dir=values["CONFIGS_REPO_DIR"],
         configs_subpath=values["CONFIGS_SUBPATH"],
         git_remote=GitRemoteSettings(

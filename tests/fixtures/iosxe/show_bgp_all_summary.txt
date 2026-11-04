@@ -1,0 +1,24 @@
+For address family: IPv4 Unicast
+BGP router identifier 10.0.0.1, local AS number 65001
+BGP table version is 25, main routing table version 25
+42 network entries using 10416 bytes of memory
+
+Neighbor        V           AS MsgRcvd MsgSent   TblVer  InQ OutQ Up/Down  State/PfxRcd
+10.0.0.254      4        65000    1234    1240       25    0    0 1w2d           12
+10.9.9.9        4        65099       0       0        1    0    0 never    Idle (Admin)
+192.0.2.2       4        65001    2345    2346       25    0    0 2d03h          30
+
+For address family: IPv6 Unicast
+BGP router identifier 10.0.0.1, local AS number 65001
+BGP table version is 10, main routing table version 10
+
+Neighbor        V           AS MsgRcvd MsgSent   TblVer  InQ OutQ Up/Down  State/PfxRcd
+2001:DB8:1234:5678::2
+                4        65000     100     100       10    0    0 01:00:00        5
+
+For address family: VPNv4 Unicast
+BGP router identifier 10.0.0.1, local AS number 65001
+BGP table version is 30, main routing table version 30
+
+Neighbor        V           AS MsgRcvd MsgSent   TblVer  InQ OutQ Up/Down  State/PfxRcd
+10.1.1.2        4        65010     500     500       30    0    0 3d00h    Active

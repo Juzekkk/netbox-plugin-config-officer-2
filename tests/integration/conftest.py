@@ -34,6 +34,7 @@ IOSXE_COMMANDS = {
     "show inventory": "show_inventory.txt",
     "show cdp neighbors detail": "show_cdp_neighbors_detail.txt",
     "show lldp neighbors detail": "show_lldp_neighbors_detail.txt",
+    "show bgp all summary": "show_bgp_all_summary.txt",
 }
 
 

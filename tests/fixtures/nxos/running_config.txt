@@ -1,0 +1,28 @@
+!Command: show running-config
+!Running configuration last done at: Mon Nov  2 10:00:00 2026
+!Time: Mon Nov  2 10:05:00 2026
+
+version 9.3(8) Bios:version 07.69
+hostname nx1
+feature bgp
+
+router bgp 65100
+  router-id 10.0.1.1
+  template peer SPINES
+    remote-as 65000
+    update-source loopback0
+  neighbor 10.0.1.254
+    inherit peer SPINES
+    description spine1
+    address-family ipv4 unicast
+  neighbor 10.0.1.253
+    remote-as 65000
+    description spine2
+    password 3 0123456789abcdef
+    address-family ipv4 unicast
+  vrf PROD
+    neighbor 10.2.2.2
+      remote-as 65200
+      description prod-peer
+      shutdown
+      address-family ipv4 unicast

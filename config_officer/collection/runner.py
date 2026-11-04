@@ -272,6 +272,12 @@ def _store_and_sync(
     }
     if settings.collect_neighbors:
         details["neighbors"] = [asdict(neighbor) for neighbor in parsed.neighbors]
+    if settings.collect_bgp:
+        details["bgp"] = {
+            "local_as": parsed.bgp.local_as,
+            "router_id": parsed.bgp.router_id,
+            "sessions": [asdict(session) for session in parsed.bgp.sessions],
+        }
     try:
         check_serial(device, parsed)
     except CollectionError as exc:

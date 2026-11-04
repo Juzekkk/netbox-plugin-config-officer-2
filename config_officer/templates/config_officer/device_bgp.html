@@ -1,0 +1,76 @@
+{% extends 'dcim/device/base.html' %}
+{% load i18n %}
+
+{% block content %}
+<div class="card">
+  <h2 class="card-header">
+    {% trans "BGP sessions" %}
+    <small class="text-secondary">
+      {% if bgp.local_as %}{% trans "local AS" %} {{ bgp.local_as }}{% endif %}
+      {% if bgp.router_id %} &middot; {% trans "router ID" %} {{ bgp.router_id }}{% endif %}
+      {% if result %} &middot; {% trans "seen in the collection of" %} <a href="{{ result.get_absolute_url }}">{{ result.timestamp|isodatetime:"minutes" }}</a>{% endif %}
+    </small>
+  </h2>
+  <div class="table-responsive">
+    <table class="table table-hover mb-0">
+      <thead>
+        <tr>
+          <th>{% trans "VRF" %}</th>
+          <th>{% trans "Peer" %}</th>
+          <th>{% trans "Remote AS" %}</th>
+          <th>{% trans "Description" %}</th>
+          <th>{% trans "State" %}</th>
+          <th>{% trans "Prefixes received" %}</th>
+          <th>{% trans "Up/Down" %}</th>
+          {% if netbox_bgp %}<th>{% trans "In NetBox" %}</th>{% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in matches %}
+          <tr>
+            <td>{{ m.session.vrf|default:"global" }}</td>
+            <td class="font-monospace">{{ m.session.peer }}</td>
+            <td>{{ m.session.remote_as|placeholder }}</td>
+            <td>{{ m.session.description|placeholder }}</td>
+            <td>
+              <span class="badge text-bg-{{ m.state_color }}">
+                {% if m.session.shutdown %}{% trans "shutdown" %}{% elif m.session.state %}{{ m.session.state }}{% else %}{% trans "not in the summary" %}{% endif %}
+              </span>
+              {% if not m.session.configured %}<span class="text-secondary small">{% trans "not found in the config" %}</span>{% endif %}
+            </td>
+            <td>{{ m.session.prefixes_received|placeholder }}</td>
+            <td>{{ m.session.uptime|placeholder }}</td>
+            {% if netbox_bgp %}
+              <td>
+                {% if m.netbox %}
+                  {{ m.netbox|linkify }}
+                  {% for difference in m.differences %}<div class="text-warning small">{{ difference }}</div>{% endfor %}
+                {% else %}
+                  <span class="badge text-bg-gray">{% trans "not in NetBox" %}</span>
+                {% endif %}
+              </td>
+            {% endif %}
+          </tr>
+        {% empty %}
+          <tr><td colspan="8" class="text-secondary">{% trans "No BGP sessions were found on the device." %}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card-footer text-secondary small">
+    {% trans "Sessions come from the running config and the BGP summary of the latest successful collection." %}
+    {% if not netbox_bgp %}{% trans "Install the netbox-bgp plugin to compare them with NetBox." %}{% endif %}
+  </div>
+</div>
+
+{% if only_in_netbox %}
+  <div class="card">
+    <h2 class="card-header">{% trans "In NetBox, but not on the device" %}</h2>
+    <ul class="list-group list-group-flush">
+      {% for session in only_in_netbox %}
+        <li class="list-group-item">{{ session|linkify }} <span class="text-secondary">&middot; {{ session.remote_address|placeholder }} &middot; AS{{ session.remote_as.asn }}</span></li>
+      {% endfor %}
+    </ul>
+  </div>
+{% endif %}
+{% endblock %}

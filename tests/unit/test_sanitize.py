@@ -14,5 +14,10 @@ def test_redacts_lines_and_whole_blocks():
     assert "ntp server 1.1.1.1" in redacted
 
 
-def test_no_prefixes_keeps_everything():
+def test_no_prefixes_keeps_everything_else():
     assert redact_config("username a\n b", []) == "username a\n b"
+
+
+def test_bgp_neighbor_passwords_are_always_removed():
+    config = "router bgp 65001\n neighbor 10.0.0.2 remote-as 65002\n neighbor 10.0.0.2 password 7 104D000A0618"
+    assert redact_config(config, []) == "router bgp 65001\n neighbor 10.0.0.2 remote-as 65002"

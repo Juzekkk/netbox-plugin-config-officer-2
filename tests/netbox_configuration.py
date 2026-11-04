@@ -4,6 +4,7 @@ Database and Redis are read from environment variables so the same file works
 locally and in GitHub Actions. The defaults match tests/services.yml.
 """
 
+import importlib.util
 import os
 import tempfile
 
@@ -29,6 +30,9 @@ SECRET_KEY = "config-officer-tests-0123456789-0123456789-0123456789"
 API_TOKEN_PEPPERS = {1: "config-officer-tests-pepper-0123456789-0123456789-0123456789"}
 DEFAULT_PERMISSIONS = {}
 PLUGINS = ["config_officer"]
+# Optional: the BGP sync tests run only when the netbox-bgp plugin is installed.
+if importlib.util.find_spec("netbox_bgp"):
+    PLUGINS.append("netbox_bgp")
 # Each test gets its own repository directory (tests/integration/conftest.py).
 PLUGINS_CONFIG = {
     "config_officer": {
