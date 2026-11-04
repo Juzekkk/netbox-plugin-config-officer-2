@@ -125,6 +125,7 @@ class ParsedBgpSession:
     update_source: str = ""  # interface name
     configured: bool = False  # found in the running config
     state: str = ""  # "Established", "Idle", "Active", "Idle (Admin)"...; "" = not in the summary
+    local_address: str = ""  # "Local host" reported by the device for an established session
     prefixes_received: int | None = None
     uptime: str = ""
     group: str = ""  # peer-group / template / neighbor-group the neighbor inherits from
@@ -501,6 +502,24 @@ def expand_interface_name(name: str) -> str:
     return f"{full}{m.group(2)}" if full else name
 
 
+def parse_interface_vrfs(config: str) -> dict[str, str]:
+    """{interface name (lower case): VRF} from the running config.
+
+    NX-OS does not show the VRF in "show interface", only in the config:
+    ``vrf member X`` (NX-OS), ``vrf forwarding X`` / ``ip vrf forwarding X`` (IOS).
+    """
+    vrfs: dict[str, str] = {}
+    current = None
+    for line in config.splitlines():
+        if m := re.match(r"^interface (\S+)", line):
+            current = expand_interface_name(m.group(1)).lower()
+        elif not line[:1].isspace():
+            current = None
+        elif current and (m := re.match(r"^\s+(?:ip )?vrf (?:member|forwarding) (\S+)", line)):
+            vrfs[current] = m.group(1)
+    return vrfs
+
+
 def parse_vlan_list(text: str) -> list[int] | None:
     """'10,20,30-32' -> [10, 20, 30, 31, 32]; 'ALL' / '1-4094' / '' -> None (all); 'NONE' -> []."""
     text = text.strip().upper().rstrip(",")
@@ -856,22 +875,50 @@ def parse_bgp_summary(output: str) -> tuple[int | None, dict[tuple[str | None, s
     return local_as, rows
 
 
-def parse_bgp(running_config: str, summary: str) -> ParsedBgp:
-    """Configuration and state of every BGP neighbor of the device."""
+def parse_bgp_local_addresses(output: str) -> dict[tuple[str | None, str], str]:
+    """{(vrf, peer): local address} from ``show ... bgp ... neighbors``.
+
+    Every neighbor starts with "BGP neighbor is <peer>," (IOS-XE adds "vrf X,");
+    established sessions show "Local host: <address>,". The VRF is None when the
+    output does not name it.
+    """
+    addresses: dict[tuple[str | None, str], str] = {}
+    current = None
+    for line in output.splitlines():
+        if m := re.search(r"BGP neighbor is ([0-9A-Fa-f:.]+?),(?:\s*vrf (\S+?),)?", line):
+            current = (m.group(2), m.group(1).lower()) if _is_ip(m.group(1)) else None
+        elif (
+            current
+            and (m := re.search(r"Local host: ([0-9A-Fa-f:.]+?),", line))
+            and _is_ip(m.group(1))
+        ):
+            addresses[current] = m.group(1).lower()
+    return addresses
+
+
+def _session_for(sessions: dict, vrf: str | None, peer: str) -> ParsedBgpSession:
+    """The session a (vrf, peer) row belongs to; without a VRF, the configured one for that peer."""
+    if vrf is None:
+        candidates = [key for key in sessions if key[1] == peer]
+        key = candidates[0] if len(candidates) == 1 else ("", peer)
+    else:
+        key = (vrf, peer)
+    return sessions.setdefault(key, ParsedBgpSession(peer=peer, vrf=key[0]))
+
+
+def parse_bgp(running_config: str, summary: str, neighbor_details: str = "") -> ParsedBgp:
+    """Configuration, state and local address of every BGP neighbor of the device."""
     bgp = parse_bgp_config(running_config)
     summary_as, rows = parse_bgp_summary(summary)
     sessions = {(s.vrf, s.peer): s for s in bgp.sessions}
     for (vrf, peer), row in rows.items():
-        if vrf is None:  # the summary does not name the VRF: use the configuration's
-            candidates = [key for key in sessions if key[1] == peer]
-            key = candidates[0] if len(candidates) == 1 else ("", peer)
-        else:
-            key = (vrf, peer)
-        session = sessions.setdefault(key, ParsedBgpSession(peer=peer, vrf=key[0]))
+        session = _session_for(sessions, vrf, peer)
         session.state = row["state"]
         session.uptime = row["uptime"]
         session.prefixes_received = row["prefixes_received"]
         session.remote_as = session.remote_as or row["remote_as"]
+    for (vrf, peer), address in parse_bgp_local_addresses(neighbor_details).items():
+        _session_for(sessions, vrf, peer).local_address = address
     bgp.local_as = bgp.local_as or summary_as
     bgp.sessions = sorted(sessions.values(), key=lambda s: (s.vrf, s.peer))
     return bgp
@@ -896,12 +943,20 @@ def parse_device_output(driver: str, output, mgmt_ip: str) -> ParsedDevice:
             if output.show_ip_interface:
                 IOSXEParser.parse_show_ip_interface(output.show_ip_interface, device.interfaces)
 
+    running_config = getattr(output, "running_config", "") or ""
+    for name, vrf in parse_interface_vrfs(running_config).items():
+        interface = next((i for key, i in device.interfaces.items() if key.lower() == name), None)
+        if interface is not None and not interface.vrf:
+            interface.vrf = vrf
+
     # Optional commands; missing attributes / empty output simply mean "not collected".
     device.vlans = parse_vlan_brief(getattr(output, "show_vlan", "") or "")
     device.switchports = parse_switchport(getattr(output, "show_switchport", "") or "")
     device.inventory = parse_inventory(getattr(output, "show_inventory", "") or "")
     device.bgp = parse_bgp(
-        getattr(output, "running_config", "") or "", getattr(output, "show_bgp", "") or ""
+        running_config,
+        getattr(output, "show_bgp", "") or "",
+        getattr(output, "show_bgp_neighbors", "") or "",
     )
     device.neighbors = merge_neighbors(
         parse_cdp_neighbors(getattr(output, "show_cdp", "") or ""),

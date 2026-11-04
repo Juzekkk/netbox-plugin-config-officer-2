@@ -1,0 +1,8 @@
+BGP neighbor is 10.0.0.254,  remote AS 65000, external link
+Local host: 10.0.0.253, Local port: 179
+BGP neighbor is 10.9.9.9,  remote AS 65099, external link
+BGP neighbor is 192.0.2.2,  remote AS 65001, internal link
+Local host: 10.255.0.1, Local port: 30123
+BGP neighbor is 2001:DB8:1234:5678::2,  remote AS 65000, external link
+Local host: 2001:DB8:1234:5678::1, Local port: 179
+BGP neighbor is 10.1.1.2,  vrf CUST,  remote AS 65010, external link

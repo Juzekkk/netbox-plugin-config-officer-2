@@ -41,7 +41,11 @@ def test_first_run_collects_and_syncs(admin_user, make_device, fake_network):
         "GigabitEthernet1/0/1",
         "GigabitEthernet1/0/2",
         "Loopback0",
-    }  # Vlan10 (SVI) is skipped
+        "Vlan10",
+    }
+    svi = Interface.objects.get(device=device, name="Vlan10")
+    assert svi.type == "virtual" and svi.primary_mac_address is None  # SVIs share the chassis MAC
+    assert [str(ip.address) for ip in svi.ip_addresses.all()] == ["10.10.0.1/24"]
 
     stored = ConfigRepository.from_settings().read_config("sw1")
     assert "ntp server 1.1.1.1" in stored and "secret 9" not in stored

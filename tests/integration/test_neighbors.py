@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 from dcim.models import Cable, Interface
 from django.contrib.auth import get_user_model
+from ipam.models import IPAddress
 
 from config_officer.collection.neighbors import (
     CONNECTED,
@@ -125,3 +126,31 @@ def test_neighbors_tab_and_add_cable_button(
     assert local.cable is not None and remote in local.connected_endpoints
     assert admin_client.post(url, data).status_code == 302  # second click: refused politely
     assert Cable.objects.count() == 1
+
+
+@pytest.mark.django_db
+def test_neighbor_found_by_ip_or_fqdn(make_device):
+    """NetBox names often differ from advertised hostnames: fall back to the FQDN and the IP."""
+    sw1 = make_device("sw1")
+    for n in (1, 2, 3):
+        Interface.objects.create(device=sw1, name=f"GigabitEthernet1/0/{n}", type="1000base-t")
+    core = make_device("CORE-01")  # advertised as core1.example.com, IP 10.0.0.254
+    port = Interface.objects.create(
+        device=core, name="TenGigabitEthernet1/0/10", type="10gbase-x-sfpp"
+    )
+    IPAddress.objects.create(address="10.0.0.254/24", assigned_object=port)
+    make_device("ap-01.example.net")  # advertised as "ap-01"
+
+    from dataclasses import asdict
+
+    matches = {
+        m.neighbor["name"]: m
+        for m in match_neighbors(sw1, [asdict(n) for n in parsed_iosxe().neighbors])
+    }
+    assert (matches["core1.example.com"].device, matches["core1.example.com"].note) == (
+        core,
+        "matched by IP 10.0.0.254",
+    )
+    assert matches["core1.example.com"].status == NO_CABLE
+    assert matches["ap-01"].device.name == "ap-01.example.net"
+    assert matches["SEP001122334455"].note.startswith("device unknown")

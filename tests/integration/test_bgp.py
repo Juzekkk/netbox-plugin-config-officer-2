@@ -27,6 +27,7 @@ def parsed_iosxe():
         show_ip_interface="",
         running_config=read("running_config.txt"),
         show_bgp=read("show_bgp_all_summary.txt"),
+        show_bgp_neighbors=read("show_bgp_all_neighbors_include.txt"),
     )
     return parse_device_output("iosxe", output, "10.0.0.1")
 
@@ -71,10 +72,19 @@ def test_sync_creates_sessions(router, plugin_config):
     plugin_config(SYNC_BGP_SESSIONS=True, BGP_ASN_RIR="private")
     report = sync_device(router, parsed_iosxe(), "ssh", get_settings())
 
-    assert sorted(report.bgp_sessions_created) == ["10.0.0.254", "10.1.1.2 (VRF CUST)", "192.0.2.2"]
-    assert any(
-        "10.9.9.9" in w and "local address unknown" in w for w in report.warnings
-    )  # no IP in its subnet
+    assert sorted(report.bgp_sessions_created) == [
+        "10.0.0.254",
+        "10.1.1.2 (VRF CUST)",
+        "192.0.2.2",
+        "2001:db8:1234:5678::2",
+    ]
+    # 10.9.9.9 is shut down: the device reports no local address and none of its IPs is in that
+    # subnet, so no session - but the peer's IP is kept in NetBox.
+    assert any("10.9.9.9" in w and "peer IP 10.9.9.9/32 recorded" in w for w in report.warnings)
+    peer = IPAddress.objects.get(address="10.9.9.9/32")
+    assert peer.description == "BGP peer of sw1 (AS65099) - Config Officer"
+    ipv6 = BGPSession.objects.get(remote_address__address__net_host="2001:db8:1234:5678::2")
+    assert str(ipv6.local_address.address) == "2001:db8:1234:5678::1/128"  # "Local host", created
     uplink = BGPSession.objects.get(remote_address__address__net_host="10.0.0.254")
     assert (str(uplink.local_address.address), uplink.local_as.asn, uplink.remote_as.asn) == (
         "10.0.0.253/24",
@@ -102,7 +112,8 @@ def test_sync_needs_asns_or_a_rir(router, plugin_config):
     report = sync_device(router, parsed_iosxe(), "ssh", get_settings())
     assert not BGPSession.objects.exists()
     assert any("AS65000 is not in NetBox" in w for w in report.warnings)
-    assert not ASN.objects.exists()  # nothing half-created
+    assert not ASN.objects.exists()  # nothing half-created...
+    assert IPAddress.objects.filter(address="10.0.0.254/32").exists()  # ...but the peers are kept
 
 
 @needs_netbox_bgp
