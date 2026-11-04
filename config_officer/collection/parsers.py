@@ -279,8 +279,9 @@ class NXOSParser:
                     logger.debug("[PARSER][NXOS] version=%r", result.version)
 
             if not result.pid:
+                # e.g. "cisco Nexus9000 C93180YC-EX chassis" (model names contain hyphens)
                 m = re.search(
-                    r"cisco\s+(Nexus[\s\w]+?)\s+(?:Chassis|processor)",
+                    r"cisco\s+(Nexus[\w\s-]+?)\s+(?:Chassis|processor)",
                     line,
                     re.IGNORECASE,
                 )
@@ -351,11 +352,12 @@ class NXOSParser:
                 current.speed = f"{int(m.group(2)) // 1000}Mbps"
                 continue
 
-            # Duplex / speed (separate NX-OS line)
-            m = re.match(r"^\s+(full|half)-duplex,\s+(\d+)\s+Mb/s", line, re.IGNORECASE)
+            # Duplex / speed (separate NX-OS line): "full-duplex, 10 Gb/s" or "full-duplex, 1000 Mb/s"
+            m = re.match(r"^\s+(full|half|auto)-duplex,\s+(\d+)\s+(Mb|Gb)/s", line, re.IGNORECASE)
             if m:
                 current.duplex = m.group(1).lower()
-                current.speed = f"{m.group(2)}Mbps"
+                mbps = int(m.group(2)) * (1000 if m.group(3).lower() == "gb" else 1)
+                current.speed = f"{mbps}Mbps"
                 continue
 
             # IP
