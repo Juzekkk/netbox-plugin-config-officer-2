@@ -110,6 +110,12 @@ jobs:
           pip install -r .netbox/requirements-tests.txt
           pip install -e . pytest pytest-django
 
+      # Optional plugin for the BGP sync tests (skipped without it). Its releases are
+      # tied to NetBox versions: keep this in step with .netbox-version.
+      - name: Install netbox-bgp
+        if: matrix.netbox == 'pinned'
+        run: pip install "netbox-bgp>=0.20,<0.21"
+
       - name: Run unit and integration tests
         run: pytest --junit-xml=reports/junit.xml
         env:
