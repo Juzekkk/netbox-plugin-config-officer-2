@@ -1,64 +1,43 @@
+# Checks run on every `git commit` (after `poetry run pre-commit install`) and in CI.
+# Run them by hand with: poetry run pre-commit run --all-files
+default_install_hook_types: [pre-commit, commit-msg]
+
 repos:
-  # ---------------------------------------------------------------------------
-  # Built-in pre-commit hooks
-  # ---------------------------------------------------------------------------
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
+    rev: v6.0.0
     hooks:
-      - id: trailing-whitespace       # strip trailing whitespace
-      - id: end-of-file-fixer         # ensure files end with a newline
-      - id: check-yaml                # validate YAML syntax (including this file)
-      - id: check-toml                # validate pyproject.toml syntax
-      - id: check-merge-conflict      # detect unresolved merge conflict markers
-      - id: check-added-large-files   # block files larger than 500 kB
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
         args: ["--maxkb=500"]
-      - id: debug-statements          # catch pdb / breakpoint() left in code
-      - id: mixed-line-ending         # enforce LF line endings (Unix)
+      - id: debug-statements
+      - id: mixed-line-ending
         args: ["--fix=lf"]
 
-  # ---------------------------------------------------------------------------
-  # Ruff - linter + formatter (replaces black, isort, and flake8 in one tool)
-  # ---------------------------------------------------------------------------
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.11.8
+    rev: v0.17.3  # keep in sync with ruff in pyproject.toml
     hooks:
-      - id: ruff                      # linter (equivalent of flake8 + isort + pylint)
+      - id: ruff-check
         args: ["--fix", "--exit-non-zero-on-fix"]
-        # --fix                  -> auto-fix everything that can be fixed
-        # --exit-non-zero-on-fix -> fail the commit when fixes were applied,
-        #                          forcing `git add` + re-check so no silently
-        #                          modified files slip through unstaged
-      - id: ruff-format               # formatter (equivalent of black)
+      - id: ruff-format
 
-  # ---------------------------------------------------------------------------
-  # Conventional Commits - validate commit message format
-  # ---------------------------------------------------------------------------
+  # Commit messages must follow Conventional Commits (feat:, fix:, docs:, ...):
+  # commitizen derives the next version and the changelog from them.
   - repo: https://github.com/commitizen-tools/commitizen
-    rev: v4.6.0
+    rev: v4.19.3
     hooks:
       - id: commitizen
-        stages: [commit-msg]          # runs on the commit-msg stage only
-        # Enforces the format:
-        #   <type>(<scope>): <subject>
-        # Valid types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert
-        # Examples:
-        #   feat(cisco-diff): add wildcard placeholder support
-        #   fix(compliance): handle empty config blocks
-        #   chore: bump ruff to 0.5
+        stages: [commit-msg]
 
-  # ---------------------------------------------------------------------------
-  # Pytest - run only tests related to the changed files
-  # ---------------------------------------------------------------------------
+  # Unit tests take about a second; integration tests run in CI (see CONTRIBUTING.md).
   - repo: local
     hooks:
-      - id: pytest-changed
-        name: pytest (changed modules)
-        language: python
-        entry: python scripts/run_tests_for_changed.py
-        # The script resolves which test files correspond to the changed modules
-        # and runs only those, keeping pre-commit feedback fast.
-        pass_filenames: true          # pre-commit passes the list of staged files
+      - id: unit-tests
+        name: unit tests
+        entry: poetry run pytest tests/unit -q
+        language: system
+        pass_filenames: false
         types: [python]
-        stages: [pre-commit]
-        additional_dependencies:
-          - pytest
