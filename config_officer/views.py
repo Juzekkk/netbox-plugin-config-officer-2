@@ -16,6 +16,8 @@ from core.choices import JobStatusChoices
 from core.models import Job
 from dcim.models import Device
 from django.contrib import messages
+from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.db.models import Count
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -37,6 +39,8 @@ from utilities.views import (
 
 from . import filtersets, forms, jobs, tables
 from .choices import CollectStatusChoices
+from .collection.neighbors import NO_CABLE, create_cable, match_neighbors
+from .collection.netbox_sync import SyncReport
 from .collection.targets import DeviceSelection
 from .compliance.engine import templates_for_device
 from .models import (
@@ -180,6 +184,27 @@ class CollectionView(generic.ObjectView):
     queryset = Collection.objects.select_related("device", "job")
     actions = (DeleteObject,)
 
+    def get_extra_context(self, request, instance):
+        report = instance.details.get("netbox") or {}
+        changes = []  # (label, [items]) for every kind of change that happened
+        for name, label in SyncReport.CHANGES:
+            items = report.get(name)
+            if isinstance(items, dict):  # interfaces_updated: {interface: [fields]}
+                items = [f"{key} ({', '.join(fields)})" for key, fields in items.items()]
+            if items:
+                changes.append((label, items))
+        return {"changes": changes, "report": report}
+
+
+def latest_neighbors(device) -> tuple[Collection | None, list[dict]]:
+    """Neighbors stored with the device's latest successful collection."""
+    result = (
+        Collection.objects.filter(device=device, status=CollectStatusChoices.STATUS_SUCCEEDED)
+        .filter(details__has_key="neighbors")
+        .first()
+    )
+    return result, (result.details["neighbors"] if result else [])
+
 
 @register_model_view(Collection, "delete")
 class CollectionDeleteView(generic.ObjectDeleteView):
@@ -277,6 +302,66 @@ class DeviceComplianceView(generic.ObjectView):
             "templates": templates_for_device(instance),
             "can_recheck": request.user.has_perm("config_officer.change_compliance"),
         }
+
+
+@register_model_view(Device, name="config_officer_neighbors", path="config-officer/neighbors")
+class DeviceNeighborsView(generic.ObjectView):
+    """Device tab: CDP/LLDP neighbors from the latest collection, compared with NetBox's cables."""
+
+    queryset = Device.objects.all()
+    template_name = "config_officer/device_neighbors.html"
+    tab = ViewTab(
+        label=_("Neighbors"),
+        permission="config_officer.view_collection",
+        weight=2105,
+        badge=lambda device: len(latest_neighbors(device)[1]),
+        hide_if_empty=True,
+    )
+
+    def get_extra_context(self, request, instance):
+        result, neighbors = latest_neighbors(instance)
+        return {
+            "result": result,
+            "matches": match_neighbors(instance, neighbors),
+            "can_add_cable": request.user.has_perm("dcim.add_cable"),
+        }
+
+
+class DeviceNeighborCableView(PermissionRequiredView):
+    """POST: add the cable for one link the Neighbors tab shows as "no cable"."""
+
+    permission_required = ("dcim.add_cable", "config_officer.view_collection")
+
+    def post(self, request, pk):
+        device = get_object_or_404(Device.objects.restrict(request.user, "view"), pk=pk)
+        return_url = reverse("dcim:device_config_officer_neighbors", kwargs={"pk": device.pk})
+        wanted = (request.POST.get("local_interface"), request.POST.get("remote_interface"))
+        # Only links that are currently reported and still uncabled can be cabled here.
+        match = next(
+            (
+                m
+                for m in match_neighbors(device, latest_neighbors(device)[1])
+                if m.status == NO_CABLE
+                and (str(m.local_interface.pk), str(m.interface.pk)) == wanted
+            ),
+            None,
+        )
+        if match is None:
+            messages.error(request, _("This link is no longer reported as uncabled."))
+            return redirect(return_url)
+        try:
+            with transaction.atomic():
+                cable = create_cable(
+                    match.local_interface, match.interface, match.neighbor["protocol"]
+                )
+        except ValidationError as exc:
+            messages.error(
+                request, _("NetBox refused the cable: {}").format("; ".join(exc.messages))
+            )
+        else:
+            link = format_html('<a href="{}">{}</a>', cable.get_absolute_url(), cable)
+            messages.success(request, format_html(_("Created cable {}."), link))
+        return redirect(return_url)
 
 
 class DeviceCollectView(PermissionRequiredView):

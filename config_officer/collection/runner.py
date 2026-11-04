@@ -27,7 +27,7 @@ import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 
 from django.db import connection as db_connection
@@ -267,7 +267,11 @@ def _store_and_sync(
         "model": parsed.pid,
         "serial": parsed.serial,
         "interfaces": len(parsed.interfaces),
+        "vlans": len(parsed.vlans),
+        "inventory_items": len(parsed.inventory),
     }
+    if settings.collect_neighbors:
+        details["neighbors"] = [asdict(neighbor) for neighbor in parsed.neighbors]
     try:
         check_serial(device, parsed)
     except CollectionError as exc:
@@ -319,7 +323,9 @@ def _process_device(
             ) from exc
 
         base.update(transport=output.transport, duration=round(output.duration, 2))
-        details.update(attempts=output.attempts, warnings=list(output.warnings))
+        details.update(
+            attempts=output.attempts, warnings=list(output.warnings), unsupported=output.unsupported
+        )
         report = _store_and_sync(device, target, output, repo, settings, base, details)
     except _DeviceFailed as failure:
         getattr(log, failure.log_level)(f"[{name}] FAILED - {failure.message}")
@@ -331,6 +337,8 @@ def _process_device(
     config_text = "config changed" if base["config_changed"] else "config unchanged"
     message = f"Collected via {output.transport.upper()} in {output.duration:.1f}s; {config_text}; NetBox: {report.summary()}"
     log.info(f"[{name}] OK - {message}")
+    if output.unsupported:
+        log.info(f"[{name}] not supported by the device: {', '.join(output.unsupported)}")
     for warning in details["warnings"]:
         log.warning(f"[{name}] {warning}")
     return _finish(

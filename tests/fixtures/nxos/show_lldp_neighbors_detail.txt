@@ -1,0 +1,19 @@
+Capability codes:
+  (R) Router, (B) Bridge, (T) Telephone, (C) DOCSIS Cable Device
+  (W) WLAN Access Point, (P) Repeater, (S) Station, (O) Other
+Device ID            Local Intf      Hold-time  Capability  Port ID
+
+Chassis id: 00aa.bbcc.0500
+Port id: Ethernet1/50
+Local Port id: Eth1/2
+Port Description: to-leaf1
+System Name: spine2
+System Description: Cisco Nexus Operating System (NX-OS) Software 9.3(8)
+Time remaining: 106 seconds
+System Capabilities: B, R
+Enabled Capabilities: B, R
+Management Address: 10.0.1.253
+Management Address IPV6: not advertised
+Vlan ID: 1
+
+Total entries displayed: 1

@@ -36,6 +36,11 @@ urlpatterns = [
         views.DeviceConfigStatusView.as_view(),
         name="device_config_status",
     ),
+    path(
+        "devices/<int:pk>/neighbors/cable/",
+        views.DeviceNeighborCableView.as_view(),
+        name="device_neighbor_cable",
+    ),
     # Compliance
     *model_urls("templates", "template"),
     *model_urls("services", "service"),

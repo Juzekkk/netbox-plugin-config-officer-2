@@ -1,0 +1,35 @@
+------------------------------------------------
+Local Intf: Gi1/0/1
+Chassis id: 00aa.bbcc.0300
+Port id: Te1/0/10
+Port Description: TenGigabitEthernet1/0/10
+System Name: core1.example.com
+
+System Description:
+Cisco IOS Software [Cupertino], Catalyst L3 Switch Software (CAT9K_IOSXE), Version 17.9.4a
+
+Time remaining: 99 seconds
+System Capabilities: B,R
+Enabled Capabilities: B,R
+Management Addresses:
+    IP: 10.0.0.254
+Auto Negotiation - not supported
+Vlan ID: - not advertised
+
+------------------------------------------------
+Local Intf: Gi1/0/3
+Chassis id: 00aa.bbcc.0400
+Port id: eth0
+Port Description: uplink
+System Name: ap-01
+
+System Description:
+Linux access point
+
+Time remaining: 112 seconds
+System Capabilities: B,W
+Enabled Capabilities: W
+Management Addresses:
+    IP: 10.30.0.10
+
+Total entries displayed: 2

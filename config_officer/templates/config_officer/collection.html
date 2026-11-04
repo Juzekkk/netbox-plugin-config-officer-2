@@ -36,32 +36,34 @@
   <div class="col col-12 col-lg-6">
     <div class="card">
       <h2 class="card-header">{% trans "Changes in NetBox" %}</h2>
-      {% with nb=object.details.netbox %}
-        {% if nb %}
-          <table class="table table-hover attr-table">
-            {% if nb.serial %}<tr><th scope="row">{% trans "Serial set" %}</th><td>{{ nb.serial }}</td></tr>{% endif %}
-            {% if nb.custom_fields %}<tr><th scope="row">{% trans "Custom fields" %}</th><td>{% for k, v in nb.custom_fields.items %}<code>{{ k }}</code> = {{ v }}<br>{% endfor %}</td></tr>{% endif %}
-            {% if nb.interfaces_created %}<tr><th scope="row">{% trans "Interfaces created" %}</th><td>{{ nb.interfaces_created|join:", " }}</td></tr>{% endif %}
-            {% if nb.interfaces_updated %}<tr><th scope="row">{% trans "Interfaces updated" %}</th><td>{% for name, fields in nb.interfaces_updated.items %}{{ name }} <span class="text-secondary">({{ fields|join:", " }})</span><br>{% endfor %}</td></tr>{% endif %}
-            {% if nb.lag_members %}<tr><th scope="row">{% trans "LAG membership" %}</th><td>{% for m in nb.lag_members %}{{ m }}<br>{% endfor %}</td></tr>{% endif %}
-            {% if nb.mac_addresses %}<tr><th scope="row">{% trans "MAC addresses" %}</th><td>{% for m in nb.mac_addresses %}{{ m }}<br>{% endfor %}</td></tr>{% endif %}
-            {% if nb.ip_addresses_created %}<tr><th scope="row">{% trans "IP addresses created" %}</th><td>{% for ip in nb.ip_addresses_created %}{{ ip }}<br>{% endfor %}</td></tr>{% endif %}
-            {% if nb.ip_addresses_updated %}<tr><th scope="row">{% trans "IP addresses updated" %}</th><td>{% for ip in nb.ip_addresses_updated %}{{ ip }}<br>{% endfor %}</td></tr>{% endif %}
-            {% if nb.vrfs_created %}<tr><th scope="row">{% trans "VRFs created" %}</th><td>{{ nb.vrfs_created|join:", " }}</td></tr>{% endif %}
-          </table>
-          {% if not nb.serial and not nb.custom_fields and not nb.interfaces_created and not nb.interfaces_updated and not nb.lag_members and not nb.mac_addresses and not nb.ip_addresses_created and not nb.ip_addresses_updated and not nb.vrfs_created %}
-            <div class="card-body text-secondary">{% trans "Nothing changed in NetBox." %}</div>
+      {% if report %}
+        <table class="table table-hover attr-table">
+          {% if report.serial %}<tr><th scope="row">{% trans "Serial set" %}</th><td>{{ report.serial }}</td></tr>{% endif %}
+          {% if report.custom_fields %}
+            <tr><th scope="row">{% trans "Custom fields" %}</th><td>{% for k, v in report.custom_fields.items %}<code>{{ k }}</code> = {{ v }}<br>{% endfor %}</td></tr>
           {% endif %}
-        {% else %}
-          <div class="card-body text-secondary">{% trans "NetBox was not updated." %}</div>
+          {% for label, items in changes %}
+            <tr><th scope="row">{{ label|capfirst }}</th><td>{% for item in items %}{{ item }}<br>{% endfor %}</td></tr>
+          {% endfor %}
+        </table>
+        {% if not changes and not report.serial and not report.custom_fields %}
+          <div class="card-body text-secondary">{% trans "Nothing changed in NetBox." %}</div>
         {% endif %}
-      {% endwith %}
+      {% else %}
+        <div class="card-body text-secondary">{% trans "NetBox was not updated." %}</div>
+      {% endif %}
+      {% if object.details.neighbors is not None and object.device %}
+        <div class="card-footer">
+          <a href="{% url 'dcim:device_config_officer_neighbors' pk=object.device.pk %}">{{ object.details.neighbors|length }} {% trans "CDP/LLDP neighbor(s)" %}</a>
+        </div>
+      {% endif %}
     </div>
     <div class="card">
       <h2 class="card-header">{% trans "Connection attempts and warnings" %}</h2>
       <ul class="list-group list-group-flush font-monospace small">
         {% for attempt in object.details.attempts %}<li class="list-group-item">{{ attempt }}</li>{% endfor %}
         {% for warning in object.details.warnings %}<li class="list-group-item text-warning">{{ warning }}</li>{% endfor %}
+        {% if object.details.unsupported %}<li class="list-group-item text-secondary">{% trans "Not supported by the device:" %} {{ object.details.unsupported|join:", " }}</li>{% endif %}
         {% if not object.details.attempts and not object.details.warnings %}<li class="list-group-item text-secondary">&mdash;</li>{% endif %}
       </ul>
     </div>

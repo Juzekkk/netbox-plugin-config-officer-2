@@ -9,6 +9,8 @@ Supported commands:
 * IOS-XE (also used for IOS-XR): ``show version``, ``show interfaces``,
   ``show ip interface``
 * NX-OS: ``show version``, ``show interface``
+* both: ``show vlan brief``, ``show interface(s) switchport``
+* all platforms: ``show inventory``, ``show cdp neighbors detail``, ``show lldp neighbors detail``
 """
 
 from __future__ import annotations
@@ -47,14 +49,80 @@ class ParsedInterface:
 
 
 @dataclass
+class ParsedVlan:
+    vid: int
+    name: str
+    status: str = ""
+
+
+@dataclass
+class ParsedSwitchport:
+    """802.1Q settings of one port from ``show interface(s) switchport``."""
+
+    name: str  # full interface name (abbreviations expanded)
+    enabled: bool = True  # False = routed port ("Switchport: Disabled")
+    admin_mode: str = ""
+    oper_mode: str = ""
+    access_vlan: int | None = None
+    native_vlan: int | None = None
+    voice_vlan: int | None = None
+    trunk_vlans_text: str = ""  # e.g. "ALL", "1-4094", "10,20,30-32"
+
+    @property
+    def mode(self) -> str | None:
+        """'access', 'trunk' or None (routed, down or not recognised)."""
+        if not self.enabled:
+            return None
+        # The configured mode wins; "dynamic ..." ports fall back to what was negotiated.
+        for candidate in (self.admin_mode, self.oper_mode):
+            if "trunk" in candidate:
+                return "trunk"
+            if "access" in candidate:
+                return "access"
+        return None
+
+    @property
+    def trunk_vlans(self) -> list[int] | None:
+        """Allowed VLAN IDs on a trunk; None means all VLANs."""
+        return parse_vlan_list(self.trunk_vlans_text)
+
+
+@dataclass
+class ParsedInventoryItem:
+    """One entry of ``show inventory`` (chassis, line card, power supply, fan, transceiver...)."""
+
+    name: str
+    description: str = ""
+    pid: str = ""
+    vid: str = ""
+    serial: str = ""
+
+
+@dataclass
+class ParsedNeighbor:
+    """A directly connected device seen through CDP or LLDP."""
+
+    local_interface: str  # full name of the port on this device
+    name: str  # neighbor hostname as advertised (may include a domain)
+    interface: str  # neighbor's port exactly as advertised ("Te1/0/10", "eth0", ...)
+    protocol: str  # "cdp" | "lldp"
+    platform: str = ""
+    ip: str = ""
+
+
+@dataclass
 class ParsedDevice:
-    """Identity information from ``show version`` plus the parsed interfaces."""
+    """Everything parsed from one device session."""
 
     hostname: str = ""
     version: str = ""
     pid: str = ""  # product ID / hardware model
     serial: str = ""
     interfaces: dict[str, ParsedInterface] = field(default_factory=dict)
+    vlans: dict[int, ParsedVlan] = field(default_factory=dict)
+    switchports: dict[str, ParsedSwitchport] = field(default_factory=dict)
+    inventory: list[ParsedInventoryItem] = field(default_factory=list)
+    neighbors: list[ParsedNeighbor] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -372,6 +440,208 @@ class NXOSParser:
 
 
 # ---------------------------------------------------------------------------
+# Output formats shared by the platforms
+# ---------------------------------------------------------------------------
+
+# Abbreviations used by "show vlan", "show interfaces switchport", CDP and LLDP.
+_ABBREVIATIONS = {
+    "fa": "FastEthernet",
+    "gi": "GigabitEthernet",
+    "tw": "TwoGigabitEthernet",
+    "fi": "FiveGigabitEthernet",
+    "te": "TenGigabitEthernet",
+    "twe": "TwentyFiveGigE",
+    "fo": "FortyGigabitEthernet",
+    "hu": "HundredGigE",
+    "ap": "AppGigabitEthernet",
+    "eth": "Ethernet",
+    "et": "Ethernet",
+    "po": "Port-channel",
+    "lo": "Loopback",
+    "vl": "Vlan",
+    "tu": "Tunnel",
+}
+
+
+def expand_interface_name(name: str) -> str:
+    """'Gi1/0/1' -> 'GigabitEthernet1/0/1', 'Eth1/1' -> 'Ethernet1/1'; full names are kept."""
+    name = name.strip()
+    m = re.match(r"^([A-Za-z-]+?)(\d.*)$", name)
+    if not m:
+        return name
+    full = _ABBREVIATIONS.get(m.group(1).lower())
+    return f"{full}{m.group(2)}" if full else name
+
+
+def parse_vlan_list(text: str) -> list[int] | None:
+    """'10,20,30-32' -> [10, 20, 30, 31, 32]; 'ALL' / '1-4094' / '' -> None (all); 'NONE' -> []."""
+    text = text.strip().upper().rstrip(",")
+    if not text or text == "ALL":
+        return None
+    if text == "NONE":
+        return []
+    vids: set[int] = set()
+    for part in text.replace(" ", "").split(","):
+        if "-" in part:
+            first, last = part.split("-", 1)
+            vids.update(range(int(first), int(last) + 1))
+        elif part:
+            vids.add(int(part))
+    return None if vids >= set(range(1, 4095)) else sorted(vids)
+
+
+def parse_vlan_brief(output: str) -> dict[int, ParsedVlan]:
+    """``show vlan brief`` (IOS-XE and NX-OS)."""
+    vlans = {}
+    for line in output.splitlines():
+        m = re.match(r"^(\d{1,4})\s+(\S+)\s+(\S+)", line)
+        if m and 1 <= int(m.group(1)) <= 4094:
+            vid = int(m.group(1))
+            vlans[vid] = ParsedVlan(vid=vid, name=m.group(2), status=m.group(3))
+    return vlans
+
+
+def _vlan_id(value: str) -> int | None:
+    """'10 (USERS)' -> 10; 'none' -> None."""
+    m = re.match(r"^(\d+)", value.strip())
+    return int(m.group(1)) if m else None
+
+
+def parse_switchport(output: str) -> dict[str, ParsedSwitchport]:
+    """``show interfaces switchport`` (IOS-XE) / ``show interface switchport`` (NX-OS)."""
+    ports: dict[str, ParsedSwitchport] = {}
+    current: ParsedSwitchport | None = None
+    in_trunk_list = False
+    for raw in output.splitlines():
+        line = raw.strip()
+        if line.startswith("Name:"):
+            current = ParsedSwitchport(name=expand_interface_name(line.split(":", 1)[1]))
+            ports[current.name] = current
+            in_trunk_list = False
+            continue
+        if current is None:
+            continue
+        if ":" not in line:
+            # Long VLAN lists continue on the next, indented line.
+            if in_trunk_list and re.fullmatch(r"[\d,\-]+", line):
+                current.trunk_vlans_text += line
+            continue
+        key, value = (part.strip() for part in line.split(":", 1))
+        key = key.lower()
+        in_trunk_list = key in ("trunking vlans enabled", "trunking vlans allowed")
+        if key == "switchport":
+            current.enabled = value.lower().startswith("enabled")
+        elif key == "administrative mode":
+            current.admin_mode = value.lower()
+        elif key == "operational mode":
+            current.oper_mode = value.lower()
+        elif key == "access mode vlan":
+            current.access_vlan = _vlan_id(value)
+        elif key == "trunking native mode vlan":
+            current.native_vlan = _vlan_id(value)
+        elif key == "voice vlan":
+            current.voice_vlan = _vlan_id(value)
+        elif in_trunk_list:
+            current.trunk_vlans_text = value
+    return ports
+
+
+_INVENTORY_ENTRY = re.compile(
+    r'NAME:\s*"(?P<name>[^"]*)"\s*,\s*DESCR:\s*"(?P<description>[^"]*)"\s*\n'
+    r"\s*PID:\s*(?P<pid>[^,]*?)\s*,\s*VID:\s*(?P<vid>[^,]*?)\s*,\s*SN:\s*(?P<serial>\S*)"
+)
+
+
+def parse_inventory(output: str) -> list[ParsedInventoryItem]:
+    """``show inventory`` (IOS-XE, NX-OS and IOS-XR print the same NAME/DESCR/PID/VID/SN pairs)."""
+    items = []
+    for m in _INVENTORY_ENTRY.finditer(output):
+        serial = m["serial"].strip()
+        items.append(
+            ParsedInventoryItem(
+                name=m["name"].strip(),
+                description=m["description"].strip(),
+                pid=m["pid"].strip(),
+                vid=m["vid"].strip(),
+                serial="" if serial.upper() in ("N/A", "NA") else serial,
+            )
+        )
+    return items
+
+
+def _first(pattern: str, text: str) -> str:
+    m = re.search(pattern, text, re.MULTILINE)
+    return m.group(1).strip() if m else ""
+
+
+def parse_cdp_neighbors(output: str) -> list[ParsedNeighbor]:
+    """``show cdp neighbors detail`` (IOS-XE, NX-OS, IOS-XR); records are separated by dashes."""
+    neighbors = []
+    for record in re.split(r"(?m)^-{5,}\s*$", output):
+        name = _first(r"^Device ID:\s*(\S+)", record)
+        local = _first(r"^Interface:\s*([^,]+),", record)
+        remote = _first(r"Port ID \(outgoing port\):\s*(.+?)\s*$", record)
+        if not (name and local and remote):
+            continue
+        neighbors.append(
+            ParsedNeighbor(
+                local_interface=expand_interface_name(local),
+                name=re.sub(r"\(.*\)$", "", name),  # NX-OS appends "(serial)"
+                interface=remote,
+                protocol="cdp",
+                platform=_first(r"^Platform:\s*([^,]+)", record),
+                ip=_first(r"(?:IP address|IPv4 Address):\s*(\S+)", record),
+            )
+        )
+    return neighbors
+
+
+def parse_lldp_neighbors(output: str) -> list[ParsedNeighbor]:
+    """``show lldp neighbors detail``.
+
+    IOS-XE starts every record with "Local Intf:", NX-OS with "Chassis id:" (and
+    calls the local port "Local Port id").
+    """
+    start = "Local Intf:" if re.search(r"(?m)^Local Intf:", output) else "Chassis id:"
+    neighbors = []
+    for record in re.split(rf"(?m)^(?={start})", output):
+        local = _first(r"^Local (?:Intf|Port id):\s*(\S+)", record)
+        port = _first(r"^Port id:\s*(\S+)", record)
+        if not (local and port):
+            continue
+        description = re.search(r"(?m)^System Description:[ \t]*(.*)\n(?:[ \t]*(.+))?", record)
+        platform = ""
+        if description:
+            platform = (description.group(1).strip() or (description.group(2) or "").strip())[:80]
+        neighbors.append(
+            ParsedNeighbor(
+                local_interface=expand_interface_name(local),
+                name=_first(r"^System Name:\s*(\S+)", record)
+                or _first(r"^Chassis id:\s*(\S+)", record),
+                interface=port,
+                protocol="lldp",
+                platform=platform,
+                ip=_first(r"^\s*(?:IP|Management Address):\s*(\d+\.\d+\.\d+\.\d+)", record),
+            )
+        )
+    return neighbors
+
+
+def merge_neighbors(*sources: list[ParsedNeighbor]) -> list[ParsedNeighbor]:
+    """One entry per link; the first source wins (CDP before LLDP: it reports the platform)."""
+    merged, seen = [], set()
+    for source in sources:
+        for neighbor in source:
+            local = neighbor.local_interface.lower()
+            remote = expand_interface_name(neighbor.interface).lower()
+            key = (local, neighbor.name.split(".")[0].lower(), remote)
+            if key not in seen:
+                seen.add(key)
+                merged.append(neighbor)
+    return merged
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -382,12 +652,20 @@ def parse_device_output(driver: str, output, mgmt_ip: str) -> ParsedDevice:
         device = NXOSParser.parse_show_version(output.show_version)
         if output.show_interfaces:
             device.interfaces = NXOSParser.parse_show_interfaces(output.show_interfaces, mgmt_ip)
-        return device
+    else:
+        # IOS-XE and IOS-XR share the IOS-style output format closely enough.
+        device = IOSXEParser.parse_show_version(output.show_version)
+        if output.show_interfaces:
+            device.interfaces = IOSXEParser.parse_show_interfaces(output.show_interfaces, mgmt_ip)
+            if output.show_ip_interface:
+                IOSXEParser.parse_show_ip_interface(output.show_ip_interface, device.interfaces)
 
-    # IOS-XE and IOS-XR share the IOS-style output format closely enough.
-    device = IOSXEParser.parse_show_version(output.show_version)
-    if output.show_interfaces:
-        device.interfaces = IOSXEParser.parse_show_interfaces(output.show_interfaces, mgmt_ip)
-        if output.show_ip_interface:
-            IOSXEParser.parse_show_ip_interface(output.show_ip_interface, device.interfaces)
+    # Optional commands; missing attributes / empty output simply mean "not collected".
+    device.vlans = parse_vlan_brief(getattr(output, "show_vlan", "") or "")
+    device.switchports = parse_switchport(getattr(output, "show_switchport", "") or "")
+    device.inventory = parse_inventory(getattr(output, "show_inventory", "") or "")
+    device.neighbors = merge_neighbors(
+        parse_cdp_neighbors(getattr(output, "show_cdp", "") or ""),
+        parse_lldp_neighbors(getattr(output, "show_lldp", "") or ""),
+    )
     return device

@@ -29,6 +29,11 @@ IOSXE_COMMANDS = {
     "show interfaces": "show_interfaces.txt",
     "show ip interface": "show_ip_interface.txt",
     "show running-config": "running_config.txt",
+    "show vlan brief": "show_vlan_brief.txt",
+    "show interfaces switchport": "show_interfaces_switchport.txt",
+    "show inventory": "show_inventory.txt",
+    "show cdp neighbors detail": "show_cdp_neighbors_detail.txt",
+    "show lldp neighbors detail": "show_lldp_neighbors_detail.txt",
 }
 
 
@@ -63,9 +68,12 @@ class FakeNetwork:
         class Connection:
             def send_command(self, command):
                 if command in network.overrides:
-                    text = network.overrides[command]
-                else:
-                    text = (FIXTURES / "iosxe" / IOSXE_COMMANDS[command]).read_text()
+                    return SimpleNamespace(result=network.overrides[command], failed=False)
+                if command not in IOSXE_COMMANDS:  # like a real device: unknown command
+                    return SimpleNamespace(
+                        result="% Invalid input detected at '^' marker.", failed=True
+                    )
+                text = (FIXTURES / "iosxe" / IOSXE_COMMANDS[command]).read_text()
                 return SimpleNamespace(result=text, failed=False)
 
             def close(self):

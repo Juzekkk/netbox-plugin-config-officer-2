@@ -14,7 +14,10 @@ What is synchronised (all inside one database transaction per device):
   guessed for new interfaces and never overwritten afterwards;
 * LAGs and LAG membership (when ``COLLECT_PORT_CHANNEL_DATA``);
 * MAC addresses, assigned to the interface and set as its primary MAC;
-* IPv4 addresses (primary and secondary) with VRF, role and DHCP status.
+* IPv4 addresses (primary and secondary) with VRF, role and DHCP status;
+* VLANs and 802.1Q interface modes (when ``COLLECT_VLANS``), see :func:`_sync_vlans`;
+* inventory items from ``show inventory`` (when ``COLLECT_INVENTORY``), see :func:`_sync_inventory`;
+* cables to CDP/LLDP neighbors (when ``CREATE_CABLES``), see neighbors.py.
 
 VLAN interfaces (SVIs) are skipped.
 """
@@ -26,20 +29,22 @@ import re
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 
-from dcim.choices import InterfaceTypeChoices
+from dcim.choices import InterfaceModeChoices, InterfaceTypeChoices
 from dcim.fields import mac_unix_expanded_uppercase
-from dcim.models import Interface, MACAddress
+from dcim.models import Interface, InventoryItem, MACAddress
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 from ipam.choices import IPAddressRoleChoices, IPAddressStatusChoices
-from ipam.models import VRF, IPAddress
+from ipam.models import VLAN, VRF, IPAddress
 from netaddr import EUI, AddrFormatError, IPNetwork
 
 from config_officer.choices import CollectFailChoices, TransportChoices
 from config_officer.configuration import PluginSettings
 
 from .connection import CollectionError
-from .parsers import ParsedDevice, ParsedInterface
+from .neighbors import NO_CABLE, create_cable, match_neighbors
+from .parsers import ParsedDevice, ParsedInterface, ParsedSwitchport, expand_interface_name
 
 logger = logging.getLogger(__name__)
 
@@ -57,37 +62,44 @@ class SyncReport:
     ip_addresses_created: list[str] = field(default_factory=list)
     ip_addresses_updated: list[str] = field(default_factory=list)
     vrfs_created: list[str] = field(default_factory=list)
+    vlans_created: list[str] = field(default_factory=list)
+    vlan_assignments: list[str] = field(default_factory=list)
+    inventory_created: list[str] = field(default_factory=list)
+    inventory_updated: list[str] = field(default_factory=list)
+    inventory_removed: list[str] = field(default_factory=list)
+    cables_created: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
+    #: (field, label) of every kind of change, in the order shown in summaries.
+    CHANGES = (
+        ("interfaces_created", "interface(s) created"),
+        ("interfaces_updated", "interface(s) updated"),
+        ("lag_members", "LAG membership(s) set"),
+        ("mac_addresses", "MAC address(es) set"),
+        ("ip_addresses_created", "IP address(es) created"),
+        ("ip_addresses_updated", "IP address(es) updated"),
+        ("vrfs_created", "VRF(s) created"),
+        ("vlans_created", "VLAN(s) created"),
+        ("vlan_assignments", "interface VLAN assignment(s) updated"),
+        ("inventory_created", "inventory item(s) created"),
+        ("inventory_updated", "inventory item(s) updated"),
+        ("inventory_removed", "inventory item(s) removed"),
+        ("cables_created", "cable(s) created"),
+    )
+
     def summary(self) -> str:
-        """Short human summary, e.g. '2 interface(s) created, 1 IP address(es) created'."""
-        parts = []
-        if self.serial:
-            parts.append(f"serial set to {self.serial}")
-        counts = (
-            (len(self.interfaces_created), "interface(s) created"),
-            (len(self.interfaces_updated), "interface(s) updated"),
-            (len(self.lag_members), "LAG membership(s) set"),
-            (len(self.mac_addresses), "MAC address(es) set"),
-            (len(self.ip_addresses_created), "IP address(es) created"),
-            (len(self.ip_addresses_updated), "IP address(es) updated"),
-            (len(self.vrfs_created), "VRF(s) created"),
-        )
-        parts.extend(f"{count} {label}" for count, label in counts if count)
+        """Short human summary, e.g. '2 interface(s) created, 1 VLAN(s) created'."""
+        parts = [f"serial set to {self.serial}"] if self.serial else []
+        parts += [
+            f"{len(getattr(self, name))} {label}"
+            for name, label in self.CHANGES
+            if getattr(self, name)
+        ]
         return ", ".join(parts) or "no NetBox changes"
 
     @property
     def changed_objects(self) -> int:
-        return (
-            bool(self.serial)
-            + len(self.interfaces_created)
-            + len(self.interfaces_updated)
-            + len(self.lag_members)
-            + len(self.mac_addresses)
-            + len(self.ip_addresses_created)
-            + len(self.ip_addresses_updated)
-            + len(self.vrfs_created)
-        )
+        return bool(self.serial) + sum(len(getattr(self, name)) for name, _ in self.CHANGES)
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -369,12 +381,20 @@ def _attach_lag_members(
             report.lag_members.append(f"{name} -> {item.lag}")
 
 
-def _sync_interfaces(
-    device, parsed: dict[str, ParsedInterface], settings: PluginSettings, report: SyncReport
-):
-    existing = {
+def _existing_interfaces(device) -> dict[str, Interface]:
+    """The device's interfaces in NetBox, keyed by lower-case name."""
+    return {
         interface.name.lower(): interface for interface in Interface.objects.filter(device=device)
     }
+
+
+def _sync_interfaces(
+    device,
+    parsed: dict[str, ParsedInterface],
+    existing: dict,
+    settings: PluginSettings,
+    report: SyncReport,
+):
     sync_lags = settings.collect_port_channel_data
     if sync_lags:
         _ensure_lags(device, parsed, existing, report)
@@ -391,6 +411,176 @@ def _sync_interfaces(
 
     if sync_lags:
         _attach_lag_members(parsed, existing, report)
+
+
+# ---------------------------------------------------------------------------
+# VLANs and 802.1Q modes
+# ---------------------------------------------------------------------------
+
+#: Legacy FDDI / Token Ring VLANs IOS always lists; never created in NetBox.
+RESERVED_VLAN_IDS = frozenset(range(1002, 1006))
+
+
+def _available_vlans(device) -> dict[int, VLAN]:
+    """VLANs NetBox allows on this device's interfaces, by VLAN ID.
+
+    Uses NetBox's own rule (``VLAN.objects.get_for_device``: VLANs of the site,
+    of VLAN groups scoped to the device's site/location/region/..., and global
+    ones). When a VLAN ID exists several times, the most specific one wins:
+    site VLAN, then VLAN group, then global.
+    """
+
+    def specificity(vlan):
+        if vlan.site_id == device.site_id:
+            return 0
+        return 1 if vlan.group_id else 2
+
+    vlans: dict[int, VLAN] = {}
+    for vlan in sorted(VLAN.objects.get_for_device(device), key=specificity):
+        vlans.setdefault(vlan.vid, vlan)
+    return vlans
+
+
+def _sync_vlans(device, parsed: ParsedDevice, report: SyncReport) -> dict[int, VLAN]:
+    """Create the device's VLANs that NetBox does not know yet (as VLANs of the device's site).
+
+    Existing VLANs are reused and never renamed - names in NetBox may be curated.
+    """
+    vlans = _available_vlans(device)
+    for vid, item in sorted(parsed.vlans.items()):
+        if vid in RESERVED_VLAN_IDS or vid in vlans:
+            continue
+        vlan = VLAN(
+            site=device.site, vid=vid, name=(item.name or f"VLAN{vid}")[:64], tenant=device.tenant
+        )
+        vlan.save()
+        vlans[vid] = vlan
+        report.vlans_created.append(f"{vid} {vlan.name}")
+    return vlans
+
+
+def _desired_vlan_mode(port: ParsedSwitchport, vlans: dict[int, VLAN]):
+    """(mode, untagged VLAN, tagged VLANs) for a port, or None to leave the interface alone.
+
+    * access port                 -> access, untagged = access VLAN
+    * access port with voice VLAN -> tagged, untagged = access VLAN, tagged = [voice VLAN]
+    * trunk allowing all VLANs    -> tagged-all, untagged = native VLAN
+    * trunk with an allowed list  -> tagged, untagged = native VLAN, tagged = allowed VLANs
+    * routed port (no switchport) -> no mode, no VLANs
+    """
+    if not port.enabled:
+        return None, None, []
+    if port.mode == "access":
+        untagged = vlans.get(port.access_vlan)
+        if port.voice_vlan in vlans:
+            return InterfaceModeChoices.MODE_TAGGED, untagged, [vlans[port.voice_vlan]]
+        return InterfaceModeChoices.MODE_ACCESS, untagged, []
+    if port.mode == "trunk":
+        native = vlans.get(port.native_vlan)
+        allowed = port.trunk_vlans
+        if allowed is None:
+            return InterfaceModeChoices.MODE_TAGGED_ALL, native, []
+        tagged = [vlans[vid] for vid in allowed if vid in vlans and vid != port.native_vlan]
+        return InterfaceModeChoices.MODE_TAGGED, native, tagged
+    return None  # down / not recognised
+
+
+def _sync_switchports(
+    parsed: ParsedDevice, existing: dict, vlans: dict[int, VLAN], report: SyncReport
+):
+    for port in parsed.switchports.values():
+        interface = existing.get(port.name.lower())
+        desired = _desired_vlan_mode(port, vlans)
+        if interface is None or desired is None:
+            continue
+        mode, untagged, tagged = desired
+        wanted_tagged = {vlan.pk for vlan in tagged}
+        current_tagged = set(interface.tagged_vlans.values_list("pk", flat=True))
+        if (
+            (interface.mode or None) == mode
+            and interface.untagged_vlan_id == (untagged.pk if untagged else None)
+            and current_tagged == wanted_tagged
+        ):
+            continue
+        interface.snapshot()
+        interface.mode = mode
+        interface.untagged_vlan = untagged
+        interface.save()  # NetBox clears tagged VLANs unless the mode is "tagged"
+        if mode == InterfaceModeChoices.MODE_TAGGED:
+            interface.tagged_vlans.set(tagged)
+        description = mode or "routed"
+        if untagged:
+            description += f", untagged {untagged.vid}"
+        if tagged:
+            description += ", tagged " + ",".join(str(vlan.vid) for vlan in tagged)
+        report.vlan_assignments.append(f"{interface.name}: {description}")
+
+
+# ---------------------------------------------------------------------------
+# Inventory
+# ---------------------------------------------------------------------------
+
+
+def _sync_inventory(device, parsed: ParsedDevice, existing: dict, report: SyncReport) -> None:
+    """Top-level inventory items from ``show inventory``, matched by name.
+
+    * missing items are created and marked ``discovered`` (NetBox's flag for
+      automatically found hardware); an item named like an interface (a
+      transceiver) is linked to that interface;
+    * part ID, serial and description of existing items follow the device;
+    * a ``discovered`` item that the device no longer reports is deleted (unless
+      someone nested other items under it). Items created by hand are never deleted.
+    """
+    current = {
+        item.name: item for item in InventoryItem.objects.filter(device=device, parent__isnull=True)
+    }
+    seen: set[str] = set()
+    for entry in parsed.inventory:
+        name = entry.name[:64]
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        wanted = {
+            "part_id": entry.pid[:50],
+            "serial": entry.serial[:50],
+            "description": entry.description[:200],
+        }
+        item = current.get(name)
+        if item is None:
+            item = InventoryItem(device=device, name=name, discovered=True, **wanted)
+            interface = existing.get(expand_interface_name(name).lower())
+            if interface is not None:
+                item.component = interface
+            item.save()
+            report.inventory_created.append(f"{name} ({entry.pid or 'no PID'})")
+            continue
+        changes = [key for key, value in wanted.items() if getattr(item, key) != value]
+        if changes:
+            item.snapshot()
+            for key in changes:
+                setattr(item, key, wanted[key])
+            item.save()
+            report.inventory_updated.append(f"{name} ({', '.join(changes)})")
+
+    for name, item in current.items():
+        if item.discovered and name not in seen and not item.child_items.exists():
+            item.delete()
+            report.inventory_removed.append(name)
+
+
+def _sync_cables(device, parsed: ParsedDevice, report: SyncReport) -> None:
+    """Cable every CDP/LLDP link whose two ports exist in NetBox and are both uncabled."""
+    for match in match_neighbors(device, [asdict(neighbor) for neighbor in parsed.neighbors]):
+        if match.status != NO_CABLE:
+            continue
+        link = f"{match.local_interface.name} <-> {match.device.name} {match.interface.name}"
+        try:
+            with transaction.atomic():
+                create_cable(match.local_interface, match.interface, match.neighbor["protocol"])
+        except ValidationError as exc:
+            report.warnings.append(f"cable {link} not created: {'; '.join(exc.messages)}")
+        else:
+            report.cables_created.append(link)
 
 
 # ---------------------------------------------------------------------------
@@ -414,6 +604,14 @@ def sync_device(
     report = SyncReport()
     with transaction.atomic():
         _sync_device_fields(device, parsed, transport, settings, now or timezone.now(), report)
+        existing = _existing_interfaces(device)
         if settings.collect_interfaces_data and parsed.interfaces:
-            _sync_interfaces(device, parsed.interfaces, settings, report)
+            _sync_interfaces(device, parsed.interfaces, existing, settings, report)
+        if settings.collect_vlans and (parsed.vlans or parsed.switchports):
+            vlans = _sync_vlans(device, parsed, report)
+            _sync_switchports(parsed, existing, vlans, report)
+        if settings.collect_inventory and parsed.inventory:
+            _sync_inventory(device, parsed, existing, report)
+        if settings.collect_neighbors and settings.create_cables and parsed.neighbors:
+            _sync_cables(device, parsed, report)
     return report

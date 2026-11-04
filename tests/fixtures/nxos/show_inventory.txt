@@ -1,0 +1,14 @@
+NAME: "Chassis",  DESCR: "Nexus9000 C93180YC-EX chassis"
+PID: N9K-C93180YC-EX     ,  VID: V03 ,  SN: FDO12345678
+
+NAME: "Slot 1",  DESCR: "48x10/25G + 6x40/100G Ethernet Module"
+PID: N9K-C93180YC-EX     ,  VID: V03 ,  SN: FDO12345678
+
+NAME: "Power Supply 1",  DESCR: "Nexus9000 C93180YC-EX chassis Power Supply"
+PID: NXA-PAC-650W-PE     ,  VID: V01 ,  SN: LIT21345678
+
+NAME: "Fan 1",  DESCR: "Nexus9000 C93180YC-EX chassis Fan Module"
+PID: NXA-FAN-30CFM-B     ,  VID: V01 ,  SN: N/A
+
+NAME: "Ethernet1/49",  DESCR: "Cisco 40GBASE-SR4 QSFP Module"
+PID: QSFP-40G-SR4        ,  VID: V03 ,  SN: AVM12345678
