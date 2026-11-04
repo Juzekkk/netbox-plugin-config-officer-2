@@ -1,115 +1,102 @@
-[tool.poetry]
+[project]
 name = "netbox-plugin-config-officer-2"
 version = "0.2.0"
 description = "NetBox plugin that collects Cisco running configs, versions them in Git, syncs device data into NetBox and audits compliance"
-authors = [
-    "Michal Juskiewicz <m.juskiewicz66@gmail.com>",
-    "Sergei Artemov <artemov.sergey1989@gmail.com>",
-]
-license = "Apache-2.0"
 readme = "README.md"
-homepage = "https://github.com/Juzekkk/netbox-plugin-config-officer-2"
-repository = "https://github.com/Juzekkk/netbox-plugin-config-officer-2"
-packages = [
-    { include = "config_officer" },
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.12,<4.0"
+authors = [
+    { name = "Michal Juskiewicz", email = "m.juskiewicz66@gmail.com" },
+    { name = "Sergei Artemov", email = "artemov.sergey1989@gmail.com" },
 ]
-include = [
-    "config_officer/templates/**/*",
+keywords = ["netbox", "netbox-plugin", "cisco", "configuration", "compliance"]
+classifiers = [
+    "Framework :: Django",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: System :: Networking",
+]
+dependencies = [
+    "scrapli>=2024.1.30,<2026.0",
+    "GitPython>=3.1,<4.0",
+    "requests>=2.28",
 ]
 
-[tool.poetry.dependencies]
-python = ">=3.12,<4.0"
-scrapli = ">=2024.1.30,<2026.0"
-GitPython = ">=3.1,<4.0"
-gitdb = ">=4.0.1,<5.0"
+[project.urls]
+Homepage = "https://github.com/Juzekkk/netbox-plugin-config-officer-2"
+Changelog = "https://github.com/Juzekkk/netbox-plugin-config-officer-2/blob/main/CHANGELOG.md"
+Issues = "https://github.com/Juzekkk/netbox-plugin-config-officer-2/issues"
+
+[tool.poetry]
+packages = [{ include = "config_officer" }]
+include = [{ path = "config_officer/templates/**/*", format = ["sdist", "wheel"] }]
 
 [tool.poetry.group.dev.dependencies]
-pytest = ">=8,<10"
-pytest-django = "^4.8"
-ruff = ">=0.4,<1.0"
-pre-commit = ">=3.7,<5.0"
-commitizen = ">=3.27,<5.0"
+pytest = ">=8"
+pytest-django = ">=4.8"
+ruff = "0.17.3"          # keep in sync with .pre-commit-config.yaml
+pre-commit = ">=3.7"
+commitizen = ">=4.6"
 
 [build-system]
-requires = ["poetry-core>=1.0.0"]
+requires = ["poetry-core>=2.0"]
 build-backend = "poetry.core.masonry.api"
 
 # ---------------------------------------------------------------------------
-# Ruff
+# Ruff (linter + formatter)
 # ---------------------------------------------------------------------------
 
 [tool.ruff]
 target-version = "py312"
 line-length = 100
-# Directories excluded from linting
-exclude = [
-    ".git",
-    ".venv",
-    "__pycache__",
-    "migrations",
-    "config_officer/migrations",
-]
+extend-exclude = ["config_officer/migrations"]
 
 [tool.ruff.lint]
 select = [
-    "E",   # pycodestyle - style errors
-    "W",   # pycodestyle - style warnings
-    "F",   # pyflakes   - undefined names, unused imports, etc.
-    "I",   # isort      - import ordering
-    "UP",  # pyupgrade  - modernise Python syntax
-    "B",   # flake8-bugbear - common footguns
-    "C4",  # flake8-comprehensions - simplify list/dict/set comprehensions
-    "SIM", # flake8-simplify - redundant constructs
-    "TID", # flake8-tidy-imports
-    "PL",  # pylint - curated subset of pylint rules
+    "E", "W",  # pycodestyle
+    "F",       # pyflakes
+    "I",       # isort
+    "UP",      # pyupgrade
+    "B",       # flake8-bugbear
+    "C4",      # flake8-comprehensions
+    "SIM",     # flake8-simplify
+    "TID",     # flake8-tidy-imports (absolute imports)
+    "PL",      # pylint subset
 ]
 ignore = [
-    "E501",    # line length is handled by the formatter, not the linter
-    "PLR0913", # too many arguments - unavoidable in NetBox plugin views
-    "PLR0917", # too many positional arguments - same family as PLR0913
-    "PLC0415", # imports inside functions are deliberate: AppConfig.ready(), circular imports,
-               # and keeping pure modules importable without Django
-    "PLR2004", # magic value comparison - acceptable in tests
+    "E501",    # line length: left to the formatter
+    "PLR0913", # too many arguments
+    "PLR0917", # too many positional arguments
+    "PLC0415", # deliberate local imports: AppConfig.ready(), circular imports, optional Django
+    "PLR2004", # magic values
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["config_officer"]
-
-[tool.ruff.format]
-quote-style = "double"
-indent-style = "space"
-skip-magic-trailing-comma = false
+known-first-party = ["config_officer", "tests"]
 
 # ---------------------------------------------------------------------------
-# Pytest
+# Pytest - see CONTRIBUTING.md ("Tests")
 # ---------------------------------------------------------------------------
 
 [tool.pytest.ini_options]
-# Running unit tests without Django - no database required.
-# If you have a settings module, uncomment the line below and set the path:
-# DJANGO_SETTINGS_MODULE = "netbox.settings"
 testpaths = ["tests"]
-python_files = ["test_*.py"]
-python_classes = ["Test*"]
-python_functions = ["test_*"]
-addopts = [
-    "-v",
-    "--tb=short",
-    "--strict-markers",    # unknown marker = error, enforces explicit marker declarations
-]
-markers = [
-    "unit: fast unit tests with no external dependencies",
-    "integration: tests that require a database or external services",
-    "slow: tests taking longer than 1 s",
+pythonpath = ["."]
+addopts = ["--tb=short", "--strict-markers", "-p", "no:cacheprovider"]
+filterwarnings = [
+    # third-party (django-taggit) deprecation, not ours
+    "ignore:SQLCompiler.quote_name_unless_alias",
 ]
 
 # ---------------------------------------------------------------------------
-# Commitizen
+# Commitizen - version bumps and CHANGELOG.md (see CONTRIBUTING.md, "Releasing")
 # ---------------------------------------------------------------------------
 
 [tool.commitizen]
 name = "cz_conventional_commits"
-version_provider = "poetry"  # read/write the version in [tool.poetry]; no second copy to keep in sync
+version_provider = "pep621"     # the version lives only in [project].version
 tag_format = "v$version"
 update_changelog_on_bump = true
-major_version_zero = true   # while in v0.x, a BREAKING CHANGE bumps minor, not major
+major_version_zero = true       # in 0.x a BREAKING CHANGE bumps the minor version
