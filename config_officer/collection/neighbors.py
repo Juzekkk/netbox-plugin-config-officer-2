@@ -20,11 +20,13 @@ collection when ``CREATE_CABLES`` is enabled, or one at a time from the tab.
 
 from __future__ import annotations
 
+import ipaddress
 import re
 from dataclasses import dataclass
 
 from dcim.choices import LinkStatusChoices
 from dcim.models import Cable, Device, Interface
+from django.db.models import Q
 
 from .parsers import expand_interface_name
 
@@ -55,13 +57,41 @@ class NeighborMatch:
         return STATUS_COLORS[self.status]
 
 
-def find_device(name: str) -> Device | None:
-    """NetBox device for an advertised hostname: exact name, then without the domain."""
-    for candidate in dict.fromkeys((name, name.split(".", maxsplit=1)[0])):
+def find_device(name: str, ip: str = "") -> tuple[Device | None, str]:
+    """NetBox device of an advertised neighbor, and a note on how it was found.
+
+    1. the advertised name, then the name without its domain (case-insensitive);
+    2. the only NetBox device named "<hostname>.<domain>" (NetBox stores the FQDN);
+    3. the advertised IP address: the only device that has it as primary IP or on
+       one of its interfaces (names in NetBox often differ from hostnames).
+    """
+    hostname = name.split(".", maxsplit=1)[0]
+    for candidate in dict.fromkeys((name, hostname)):
         device = Device.objects.filter(name__iexact=candidate).first()
         if device is not None:
-            return device
-    return None
+            return device, ""
+    with_domain = list(Device.objects.filter(name__istartswith=f"{hostname}.")[:2])
+    if len(with_domain) == 1:
+        return with_domain[0], f"matched by name {with_domain[0].name}"
+    if ip and _is_ip(ip):
+        owners = list(
+            Device.objects.filter(
+                Q(primary_ip4__address__net_host=ip)
+                | Q(primary_ip6__address__net_host=ip)
+                | Q(interfaces__ip_addresses__address__net_host=ip)
+            ).distinct()[:2]
+        )
+        if len(owners) == 1:
+            return owners[0], f"matched by IP {ip}"
+    return None, ""
+
+
+def _is_ip(value: str) -> bool:
+    try:
+        ipaddress.ip_address(value)
+        return True
+    except ValueError:
+        return False
 
 
 def _find_interface(device: Device, advertised: str) -> Interface | None:
@@ -83,20 +113,24 @@ def match_neighbors(device: Device, neighbors: list[dict]) -> list[NeighborMatch
     matches = []
     for neighbor in neighbors:
         local = local_interfaces.get(neighbor["local_interface"].lower())
-        remote_device = find_device(neighbor["name"])
+        remote_device, how = find_device(neighbor["name"], neighbor.get("ip", ""))
         remote = _find_interface(remote_device, neighbor["interface"]) if remote_device else None
         if local is None:
             match = NeighborMatch(
                 neighbor, None, remote_device, remote, NOT_IN_NETBOX, "local port unknown"
             )
         elif remote_device is None:
-            match = NeighborMatch(neighbor, local, None, None, NOT_IN_NETBOX, "device unknown")
+            note = "device unknown (neither its name nor its IP is in NetBox)"
+            match = NeighborMatch(neighbor, local, None, None, NOT_IN_NETBOX, note)
         elif remote is None:
-            match = NeighborMatch(
-                neighbor, local, remote_device, None, NOT_IN_NETBOX, "port unknown"
+            note = f"port {neighbor['interface']} not on {remote_device}" + (
+                f"; {how}" if how else ""
             )
+            match = NeighborMatch(neighbor, local, remote_device, None, NOT_IN_NETBOX, note)
         else:
-            match = NeighborMatch(neighbor, local, remote_device, remote, _status(local, remote))
+            match = NeighborMatch(
+                neighbor, local, remote_device, remote, _status(local, remote), how
+            )
         matches.append(match)
     return matches
 
