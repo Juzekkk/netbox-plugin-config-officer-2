@@ -4,6 +4,7 @@
 
 # NetBox Config Officer Plugin
 
+[![CI](https://github.com/Juzekkk/netbox-plugin-config-officer-2/actions/workflows/ci.yml/badge.svg)](https://github.com/Juzekkk/netbox-plugin-config-officer-2/actions/workflows/ci.yml)
 [![PyPI version](https://img.shields.io/pypi/v/netbox-plugin-config-officer-2)](https://pypi.org/project/netbox-plugin-config-officer-2/)
 [![Python](https://img.shields.io/pypi/pyversions/netbox-plugin-config-officer-2)](https://pypi.org/project/netbox-plugin-config-officer-2/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
@@ -66,6 +67,8 @@ systemctl restart netbox netbox-rqworker
 ```
 
 > The directory must be writable by the NetBox worker. If the web server cannot see it (e.g. only the worker container mounts the volume), the device page asks the worker for the config instead.
+
+**netbox-docker:** add `netbox-plugin-config-officer-2` to `plugin_requirements.txt` and build the image as described in the [netbox-docker plugin guide](https://github.com/netbox-community/netbox-docker/wiki/Using-Netbox-Plugins). The image needs `git` and `openssh-client`, and the configs directory should be a volume mounted into the worker (and optionally into the web container).
 
 Optionally create these **custom fields** on *DCIM > Device*; the plugin fills those that exist after every collection:
 
@@ -204,7 +207,7 @@ Every setting can be given in `PLUGINS_CONFIG["config_officer"]` or as an enviro
 
 ## Development
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Upgrade notes are in [CHANGELOG.md](CHANGELOG.md).
+[CONTRIBUTING.md](CONTRIBUTING.md) describes the development setup, the tests and how releases are made. Changes and upgrade notes are in [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 

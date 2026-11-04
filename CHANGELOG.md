@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.0
+## v0.2.0 (2026-11-03)
 
 A restructuring of the whole plugin: every module now has one job (see "How the code is organised" in the README), the UI uses NetBox's native views, and collection is observable end to end.
 
@@ -52,6 +52,6 @@ systemctl restart netbox netbox-rqworker
 
 The migrations only add fields and rename two many-to-many fields; existing data is kept.
 
-## 0.1.26
+## v0.1.26 (2026-11-03)
 
 - Fix crashes on NetBox 4.7: schedule list (`'str' object has no attribute 'permissions_required'`), schedule jobs tab and compliance CSV export (`device_role`).
