@@ -27,6 +27,8 @@ docker compose -f tests/services.yml up -d    # PostgreSQL + Redis
 poetry run scripts/setup-netbox.sh            # NetBox (version from .netbox-version) into .netbox/
 ```
 
+The BGP sync tests also need the netbox-bgp plugin (`poetry run pip install "netbox-bgp>=0.20,<0.21"` for NetBox 4.7); without it they are skipped.
+
 The first run builds NetBox's test database (about 5 minutes); `--reuse-db` keeps it, so later runs take under a minute. Leave `--reuse-db` out once after adding a migration.
 
 | Directory | Contents |
@@ -78,3 +80,4 @@ The version exists only in `pyproject.toml`; the plugin reads it from the instal
 1. Put the version in `.netbox-version` (used by CI and `scripts/setup-netbox.sh`).
 2. `poetry run scripts/setup-netbox.sh` and run all tests.
 3. Update `min_version` in `config_officer/__init__.py` and the compatibility table in the README if needed.
+4. Update the netbox-bgp version in `.github/workflows/ci.yml` to the release for that NetBox version.

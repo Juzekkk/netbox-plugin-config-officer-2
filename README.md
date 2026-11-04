@@ -18,6 +18,7 @@ A [NetBox](https://github.com/netbox-community/netbox) plugin that collects runn
 - Running configs are sanitised and stored in a Git repository (optionally pushed to a remote); history and diffs on the device page
 - NetBox is updated from the device: serial number, software version, interfaces, LAGs, IP and MAC addresses, VLANs and 802.1Q modes, inventory (power supplies, modules, transceivers) - recorded in NetBox's change log
 - CDP/LLDP neighbors are compared with NetBox's cables; missing cables can be added with one click (or automatically)
+- BGP sessions (configuration and state) per device, compared with the [netbox-bgp](https://github.com/netbox-community/netbox-bgp) plugin and optionally written to it
 - Compliance: templates are applied to devices through services and rules (by role / device type); missing lines are reported per device
 - Optional signed webhook with a summary after scheduled runs
 - NetBox-native permissions, including per-device constraints
@@ -108,7 +109,7 @@ Showing a NetBox change log link on the run page requires `core.view_objectchang
 
 - **Config Officer > Collection > Run & monitor** - start a collection of all devices, devices with tags, or selected devices; see recent runs and the latest status of all devices.
 - **Run page** - progress (auto-refresh), the log of the run, the result of every device, the Git commit and a link to all NetBox changes made by the run.
-- **Device page** - *Collect config* button, a *Config Officer* panel with the last result and compliance, and the tabs *Configuration* (running config + Git history with diffs), *Neighbors* (CDP/LLDP compared with NetBox's cables, *Add cable* per link) and *Compliance*.
+- **Device page** - *Collect config* button, a *Config Officer* panel with the last result and compliance, and the tabs *Configuration* (running config + Git history with diffs), *Neighbors* (CDP/LLDP compared with NetBox's cables, *Add cable* per link), *BGP* (sessions with state, prefixes and the matching netbox-bgp session) and *Compliance*.
 - **Schedules** - recurring collections of all devices, devices with tags (resolved at each run) and/or selected devices, optionally with a webhook. *Run now* runs a schedule once.
 - **Compliance** - 1) create *Templates*, 2) create a *Service* with *Rules* (template + optional roles / device types), 3) assign services to devices in *Device status*. The verdict is updated after every collection; *Re-check compliance* recomputes it from the stored configs.
 
@@ -143,8 +144,11 @@ Everything the device reports is applied in one transaction per device and liste
 | VLANs and 802.1Q modes (`COLLECT_VLANS`) | `show vlan brief`, `show interface(s) switchport` | VLANs NetBox already offers to the device (site, VLAN groups, global) are reused and never renamed; missing ones are created in the device's site. Access ports get *access*, access ports with a voice VLAN *tagged*, trunks *tagged* with their allowed VLANs or *tagged-all*, routed ports no mode |
 | Inventory items (`COLLECT_INVENTORY`) | `show inventory` | Created and marked *discovered*; transceivers are linked to their interface; part ID, serial and description follow the device. Discovered items that disappear are deleted; items created by hand never are |
 | Cables (`CREATE_CABLES`, off by default) | `show cdp/lldp neighbors detail` | Only between two existing ports that are both uncabled. Existing cables are never changed; mismatches are shown on the *Neighbors* tab |
+| BGP sessions in netbox-bgp (`SYNC_BGP_SESSIONS`, off by default) | `router bgp` in the running config + BGP summary (see below) | Needs the netbox-bgp plugin. Missing sessions are created, existing ones get the device's remote/local AS, description and status (*offline* if `shutdown`, else *active*); sessions are never deleted. Missing ASNs are only created when `BGP_ASN_RIR` names a RIR. The local address is the `update-source` IP or the device IP in the peer's subnet; a missing peer address is created as /32 (/128) |
 
 Commands a device does not support (e.g. `show vlan brief` on a router) are skipped and listed on the result.
+
+BGP sessions always appear on the device's *BGP* tab (`COLLECT_BGP`). They combine the `router bgp` section of the running config (neighbors, VRF, description, `shutdown`, `update-source`, peer groups / templates) with the BGP summary for the state and received prefixes: `show bgp all summary` (IOS-XE), `show bgp ipv4|ipv6 unicast summary vrf all` (NX-OS), `show bgp all all summary` and `show bgp vrf all summary` (IOS-XR).
 
 ---
 
@@ -179,6 +183,9 @@ Every setting can be given in `PLUGINS_CONFIG["config_officer"]` or as an enviro
 | `COLLECT_INVENTORY` | `True` | Keep inventory items in sync with `show inventory` |
 | `COLLECT_NEIGHBORS` | `True` | Collect CDP/LLDP neighbors (shown on the *Neighbors* tab) |
 | `CREATE_CABLES` | `False` | Also create cables for neighbor links whose two ports are free in NetBox |
+| `COLLECT_BGP` | `True` | Collect BGP sessions (shown on the *BGP* tab) |
+| `SYNC_BGP_SESSIONS` | `False` | Create / update sessions in the netbox-bgp plugin |
+| `BGP_ASN_RIR` | empty | Slug of the RIR for ASNs that `SYNC_BGP_SESSIONS` has to create; empty = only use existing ASNs |
 
 **Storage**
 
@@ -186,7 +193,7 @@ Every setting can be given in `PLUGINS_CONFIG["config_officer"]` or as an enviro
 |---|---|---|
 | `CONFIGS_REPO_DIR` | `/device_configs` | Git work tree for the configs |
 | `CONFIGS_SUBPATH` | `netbox` | Sub-directory for `<hostname>_running.txt` files |
-| `SENSITIVE_PREFIXES` | `username`, `ssh`, `snmp-server user`, `crypto`, `key`, `password` | Lines starting with these words are removed before storing; a removed top-level line takes its indented block with it |
+| `SENSITIVE_PREFIXES` | `username`, `ssh`, `snmp-server user`, `crypto`, `key`, `password` | Lines starting with these words are removed before storing; a removed top-level line takes its indented block with it. BGP neighbor passwords are always removed |
 | `VOLATILE_LINE_PATTERNS` | timestamp lines, `ntp clock-period` | Regexes; lines that are ignored when deciding whether a config changed |
 | `GIT_REMOTE` | `{}` | Remote push: `ENABLED` (`True`), `URL`, `NAME` (`origin`), `BRANCH` (`netbox`), `SSH_KEY_PATH`, `AUTHOR` (`Netbox <netbox@example.com>`) |
 
@@ -219,6 +226,7 @@ Every setting can be given in `PLUGINS_CONFIG["config_officer"]` or as an enviro
 | `collection/sanitize.py` | Removing secrets from configs |
 | `collection/netbox_sync.py` | Writing device data into NetBox, with a report of what changed |
 | `collection/neighbors.py` | CDP/LLDP neighbors compared with NetBox's cables; creating cables |
+| `collection/bgp.py` | BGP sessions compared with / written to the netbox-bgp plugin |
 | `collection/runner.py` | One run end to end: threads for device I/O, then storage, NetBox, compliance, Git commit, job log |
 | `storage.py` | Config files and everything Git (commit, push, history) |
 | `compliance/diff.py`, `compliance/engine.py` | Config diff engine; templates that apply to a device and the verdict |
