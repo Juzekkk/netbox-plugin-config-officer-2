@@ -1,0 +1,7 @@
+
+VLAN Name                             Status    Ports
+---- -------------------------------- --------- -------------------------------
+1    default                          active    Eth1/3, Eth1/4
+10   SERVERS                          active    Eth1/5, Eth1/6
+                                                Eth1/7
+20   STORAGE                          active

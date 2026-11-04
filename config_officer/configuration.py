@@ -62,6 +62,10 @@ _SCHEMA: dict[str, tuple[type, Any]] = {
     "RESULT_RETENTION_DAYS": (int, 90),
     "COLLECT_INTERFACES_DATA": (bool, True),
     "COLLECT_PORT_CHANNEL_DATA": (bool, True),
+    "COLLECT_VLANS": (bool, True),
+    "COLLECT_INVENTORY": (bool, True),
+    "COLLECT_NEIGHBORS": (bool, True),
+    "CREATE_CABLES": (bool, False),
     # Where configs are stored
     "CONFIGS_REPO_DIR": (str, "/device_configs"),
     "CONFIGS_SUBPATH": (str, "netbox"),
@@ -147,6 +151,10 @@ class PluginSettings:
     result_retention_days: int
     collect_interfaces_data: bool
     collect_port_channel_data: bool
+    collect_vlans: bool
+    collect_inventory: bool
+    collect_neighbors: bool
+    create_cables: bool
     # Storage
     configs_repo_dir: str
     configs_subpath: str
@@ -360,6 +368,10 @@ def load_settings(plugin_config: Mapping | None, environ: Mapping | None = None)
         result_retention_days=max(values["RESULT_RETENTION_DAYS"], 0),
         collect_interfaces_data=values["COLLECT_INTERFACES_DATA"],
         collect_port_channel_data=values["COLLECT_PORT_CHANNEL_DATA"],
+        collect_vlans=values["COLLECT_VLANS"],
+        collect_inventory=values["COLLECT_INVENTORY"],
+        collect_neighbors=values["COLLECT_NEIGHBORS"],
+        create_cables=values["CREATE_CABLES"],
         configs_repo_dir=values["CONFIGS_REPO_DIR"],
         configs_subpath=values["CONFIGS_SUBPATH"],
         git_remote=GitRemoteSettings(

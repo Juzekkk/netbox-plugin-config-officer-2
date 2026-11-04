@@ -1,0 +1,14 @@
+NAME: "c93xx Stack", DESCR: "c93xx Stack"
+PID: C9300-48P         , VID: V02  , SN: FOC12345ABC
+
+NAME: "Switch 1", DESCR: "C9300-48P"
+PID: C9300-48P         , VID: V02  , SN: FOC12345ABC
+
+NAME: "Switch 1 - Power Supply A", DESCR: "Switch 1 - Power Supply A"
+PID: PWR-C1-715WAC     , VID: V01  , SN: LIT12345678
+
+NAME: "Switch 1 FRU Uplink Module 1", DESCR: "4x10G Uplink Module"
+PID: C9300-NM-4G       , VID: V01  , SN: FOC23456789
+
+NAME: "GigabitEthernet1/0/1", DESCR: "1000BaseSX SFP"
+PID: GLC-SX-MMD          , VID: V01  , SN: AGM1234567A

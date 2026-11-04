@@ -16,7 +16,8 @@ A [NetBox](https://github.com/netbox-community/netbox) plugin that collects runn
 - Collect all devices, devices **by tag** or selected devices - on demand or on a schedule
 - Every run is a NetBox background job with a readable log; every device gets a result that lists exactly what changed
 - Running configs are sanitised and stored in a Git repository (optionally pushed to a remote); history and diffs on the device page
-- NetBox is updated from the device: serial number, software version custom fields, interfaces, LAGs, IP and MAC addresses - recorded in NetBox's change log
+- NetBox is updated from the device: serial number, software version, interfaces, LAGs, IP and MAC addresses, VLANs and 802.1Q modes, inventory (power supplies, modules, transceivers) - recorded in NetBox's change log
+- CDP/LLDP neighbors are compared with NetBox's cables; missing cables can be added with one click (or automatically)
 - Compliance: templates are applied to devices through services and rules (by role / device type); missing lines are reported per device
 - Optional signed webhook with a summary after scheduled runs
 - NetBox-native permissions, including per-device constraints
@@ -95,6 +96,7 @@ The plugin uses NetBox's own permission system (*Admin > Object Permissions*). S
 | See compliance status | `view` on *compliance status* |
 | Assign / remove services on devices | `add` / `delete` on *service assignment* |
 | Re-check compliance | `change` on *compliance status* |
+| Add a cable from the *Neighbors* tab | `add` on *DCIM > Cable* |
 
 `collect_config` and `view_config` are custom actions on devices, so they honour constraints - e.g. `{"site__slug": "waw1"}` lets a team collect only its own devices. A collection run started by a user only touches the devices that user may collect.
 
@@ -106,7 +108,7 @@ Showing a NetBox change log link on the run page requires `core.view_objectchang
 
 - **Config Officer > Collection > Run & monitor** - start a collection of all devices, devices with tags, or selected devices; see recent runs and the latest status of all devices.
 - **Run page** - progress (auto-refresh), the log of the run, the result of every device, the Git commit and a link to all NetBox changes made by the run.
-- **Device page** - *Collect config* button, a *Config Officer* panel with the last result and compliance, and the tabs *Configuration* (running config + Git history with diffs) and *Compliance*.
+- **Device page** - *Collect config* button, a *Config Officer* panel with the last result and compliance, and the tabs *Configuration* (running config + Git history with diffs), *Neighbors* (CDP/LLDP compared with NetBox's cables, *Add cable* per link) and *Compliance*.
 - **Schedules** - recurring collections of all devices, devices with tags (resolved at each run) and/or selected devices, optionally with a webhook. *Run now* runs a schedule once.
 - **Compliance** - 1) create *Templates*, 2) create a *Service* with *Rules* (template + optional roles / device types), 3) assign services to devices in *Device status*. The verdict is updated after every collection; *Re-check compliance* recomputes it from the stored configs.
 
@@ -125,6 +127,24 @@ The body accepts `all_devices` (bool), `tags` (slugs), `devices` (IDs) and `stat
 ### Webhook
 
 After a scheduled run (and *Run now*) the summary is POSTed as JSON to the schedule's webhook URL: `event`, `schedule`, `target`, `commit`, `job`, `summary` (`total`, `succeeded`, `failed`, `skipped`, `changed`), `results` and `diffs`. With a secret, the header `X-Webhook-Signature: sha256=<HMAC-SHA256 of the body>` is added.
+
+---
+
+## What is written to NetBox
+
+Everything the device reports is applied in one transaction per device and listed on the collection result. Each part can be switched off with the setting in brackets.
+
+| Data | From | Rules |
+|---|---|---|
+| Serial number | `show version` | Set when empty. A *different* serial stops the collection of that device: the IP probably belongs to another box now |
+| Custom fields | `show version` | `version`, `ssh`, `last_collect_date`, `last_collect_time` - only if they exist |
+| Interfaces, LAGs (`COLLECT_INTERFACES_DATA`, `COLLECT_PORT_CHANNEL_DATA`) | `show interface(s)` | Missing interfaces are created; description, MTU, speed, duplex and enabled state follow the device. The interface type is only guessed for new interfaces. VLAN interfaces (SVIs) are skipped |
+| IP and MAC addresses | `show interface(s)`, `show ip interface` | Matched by address within the VRF (or already on the interface); MACs are assigned to their interface and set as primary |
+| VLANs and 802.1Q modes (`COLLECT_VLANS`) | `show vlan brief`, `show interface(s) switchport` | VLANs NetBox already offers to the device (site, VLAN groups, global) are reused and never renamed; missing ones are created in the device's site. Access ports get *access*, access ports with a voice VLAN *tagged*, trunks *tagged* with their allowed VLANs or *tagged-all*, routed ports no mode |
+| Inventory items (`COLLECT_INVENTORY`) | `show inventory` | Created and marked *discovered*; transceivers are linked to their interface; part ID, serial and description follow the device. Discovered items that disappear are deleted; items created by hand never are |
+| Cables (`CREATE_CABLES`, off by default) | `show cdp/lldp neighbors detail` | Only between two existing ports that are both uncabled. Existing cables are never changed; mismatches are shown on the *Neighbors* tab |
+
+Commands a device does not support (e.g. `show vlan brief` on a router) are skipped and listed on the result.
 
 ---
 
@@ -155,6 +175,10 @@ Every setting can be given in `PLUGINS_CONFIG["config_officer"]` or as an enviro
 | `RESULT_RETENTION_DAYS` | `90` | Per-device results older than this are deleted (`0` = keep) |
 | `COLLECT_INTERFACES_DATA` | `True` | Collect interfaces and update interfaces, IP and MAC addresses in NetBox |
 | `COLLECT_PORT_CHANNEL_DATA` | `True` | Create LAGs and LAG membership |
+| `COLLECT_VLANS` | `True` | Create missing VLANs and set the 802.1Q mode and VLANs of interfaces |
+| `COLLECT_INVENTORY` | `True` | Keep inventory items in sync with `show inventory` |
+| `COLLECT_NEIGHBORS` | `True` | Collect CDP/LLDP neighbors (shown on the *Neighbors* tab) |
+| `CREATE_CABLES` | `False` | Also create cables for neighbor links whose two ports are free in NetBox |
 
 **Storage**
 
@@ -194,6 +218,7 @@ Every setting can be given in `PLUGINS_CONFIG["config_officer"]` or as an enviro
 | `collection/parsers.py` | Command output -> plain dataclasses |
 | `collection/sanitize.py` | Removing secrets from configs |
 | `collection/netbox_sync.py` | Writing device data into NetBox, with a report of what changed |
+| `collection/neighbors.py` | CDP/LLDP neighbors compared with NetBox's cables; creating cables |
 | `collection/runner.py` | One run end to end: threads for device I/O, then storage, NetBox, compliance, Git commit, job log |
 | `storage.py` | Config files and everything Git (commit, push, history) |
 | `compliance/diff.py`, `compliance/engine.py` | Config diff engine; templates that apply to a device and the verdict |

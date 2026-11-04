@@ -1,0 +1,20 @@
+----------------------------------------
+Device ID:spine1(FDO11111111)
+System Name: spine1
+
+Interface address(es):
+    IPv4 Address: 10.0.1.254
+Platform: N9K-C9336C-FX2, Capabilities: Router Switch IGMP Filtering Supports-STP-Dispute
+Interface: Ethernet1/1, Port ID (outgoing port): Ethernet1/49
+Holdtime: 170 sec
+
+Version:
+Cisco Nexus Operating System (NX-OS) Software, Version 9.3(8)
+
+Advertisement Version: 2
+
+Native VLAN: 1
+Duplex: full
+
+Mgmt address(es):
+    IPv4 Address: 10.0.1.254

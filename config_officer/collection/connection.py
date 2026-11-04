@@ -33,17 +33,48 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class CommandSet:
+    """Read-only commands for one platform; None = not available on that platform."""
+
     version: str
     interfaces: str | None
     ip_interfaces: str | None
+    vlans: str | None = None
+    switchport: str | None = None
+    inventory: str | None = "show inventory"
+    cdp: str | None = "show cdp neighbors detail"
+    lldp: str | None = "show lldp neighbors detail"
     running_config: str = "show running-config"
 
 
 COMMANDS = {
-    "iosxe": CommandSet("show version", "show interfaces", "show ip interface"),
-    "nxos": CommandSet("show version", "show interface", None),
+    "iosxe": CommandSet(
+        "show version",
+        "show interfaces",
+        "show ip interface",
+        vlans="show vlan brief",
+        switchport="show interfaces switchport",
+    ),
+    "nxos": CommandSet(
+        "show version",
+        "show interface",
+        None,
+        vlans="show vlan brief",
+        switchport="show interface switchport",
+    ),
     "iosxr": CommandSet("show version", "show interfaces", None),
 }
+
+#: Optional data: (CommandSet attribute, DeviceOutput attribute, setting that enables it).
+#: A failing optional command never fails the collection - the config backup matters more.
+OPTIONAL_COMMANDS = (
+    ("interfaces", "show_interfaces", "collect_interfaces_data"),
+    ("ip_interfaces", "show_ip_interface", "collect_interfaces_data"),
+    ("vlans", "show_vlan", "collect_vlans"),
+    ("switchport", "show_switchport", "collect_vlans"),
+    ("inventory", "show_inventory", "collect_inventory"),
+    ("cdp", "show_cdp", "collect_neighbors"),
+    ("lldp", "show_lldp", "collect_neighbors"),
+)
 
 
 @dataclass
@@ -56,8 +87,14 @@ class DeviceOutput:
     running_config: str
     show_interfaces: str = ""
     show_ip_interface: str = ""
+    show_vlan: str = ""
+    show_switchport: str = ""
+    show_inventory: str = ""
+    show_cdp: str = ""
+    show_lldp: str = ""
     attempts: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    unsupported: list[str] = field(default_factory=list)  # optional commands the device rejected
     duration: float = 0.0
 
 
@@ -116,10 +153,14 @@ def open_connection(target: DeviceTarget, transport: str, port: int, settings: P
     return connection
 
 
+class CommandRejected(RuntimeError):
+    """The device answered with an error such as '% Invalid input detected'."""
+
+
 def _send(connection, command: str) -> str:
     response = connection.send_command(command)
     if getattr(response, "failed", False):
-        raise RuntimeError(
+        raise CommandRejected(
             f"{command!r} was rejected by the device: {response.result.strip()[:200]}"
         )
     return response.result
@@ -135,6 +176,8 @@ def _run_session(
         raise _SessionError(CollectFailChoices.FAIL_LOGIN, exc) from exc
 
     warnings: list[str] = []
+    unsupported: list[str] = []
+    optional: dict[str, str] = {}
     try:
         try:
             show_version = _send(connection, commands.version)
@@ -142,15 +185,16 @@ def _run_session(
         except Exception as exc:
             raise _SessionError(CollectFailChoices.FAIL_CONFIG, exc) from exc
 
-        # Interface data is optional: a failure here must not lose the config backup.
-        show_interfaces = show_ip_interface = ""
-        if settings.collect_interfaces_data and commands.interfaces:
+        for command_attr, output_attr, setting in OPTIONAL_COMMANDS:
+            command = getattr(commands, command_attr)
+            if not command or not getattr(settings, setting):
+                continue
             try:
-                show_interfaces = _send(connection, commands.interfaces)
-                if commands.ip_interfaces:
-                    show_ip_interface = _send(connection, commands.ip_interfaces)
+                optional[output_attr] = _send(connection, command)
+            except CommandRejected:
+                unsupported.append(command)
             except Exception as exc:
-                warnings.append(f"interface data not collected: {exc}")
+                warnings.append(f"{command!r} failed: {exc}")
     finally:
         try:
             connection.close()
@@ -162,9 +206,9 @@ def _run_session(
         port=port,
         show_version=show_version,
         running_config=running_config,
-        show_interfaces=show_interfaces,
-        show_ip_interface=show_ip_interface,
         warnings=warnings,
+        unsupported=unsupported,
+        **optional,
     )
 
 
