@@ -1,4 +1,4 @@
-"""Summary webhook sent after a scheduled collection run.
+"""Summary webhook sent after a scheduled collection run that changed at least one configuration.
 
 The JSON body is POSTed to ``CollectSchedule.webhook_url``. With a
 ``webhook_secret`` the body is signed and the signature is sent as::

@@ -296,7 +296,9 @@ class CollectSchedule(JobsMixin, NetBoxModel):
     webhook_url = models.URLField(
         max_length=512,
         blank=True,
-        help_text=_("Optional URL to POST a summary to after each run."),
+        help_text=_(
+            "Optional URL to POST a summary to after each run that changed at least one configuration."
+        ),
     )
     webhook_secret = models.CharField(
         max_length=256,

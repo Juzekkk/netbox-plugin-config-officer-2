@@ -60,6 +60,16 @@ def test_scheduled_run_sends_a_signed_webhook(admin_user, make_device, fake_netw
     assert payload["commit"].startswith("schedule_nightly_")
     assert any("Webhook: delivered" in entry["message"] for entry in job.log_entries)
 
+    # Nothing changed on the device since: no webhook, and the log says why.
+    with mock.patch("config_officer.webhook.requests.post") as post:
+        job = CollectScheduleJob.enqueue(immediate=True, instance=schedule, user=admin_user)
+    job.refresh_from_db()
+    post.assert_not_called()
+    assert any(
+        "Webhook: not sent - no configuration changed" in entry["message"]
+        for entry in job.log_entries
+    )
+
 
 @pytest.mark.django_db
 def test_disabled_schedule_stops_its_recurring_job(admin_user):
