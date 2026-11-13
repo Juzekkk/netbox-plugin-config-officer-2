@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.5.0 (2026-11-04)
+
+### Feat
+
+- **bgp**: local addresses from the device; SVIs and peer IPs kept in NetBox
+
+### Fix
+
+- **neighbors**: find neighbor devices by their FQDN in NetBox and by the advertised IP
+
 ## v0.4.0 (2026-11-04)
 
 ### Feat
