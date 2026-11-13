@@ -127,7 +127,7 @@ The body accepts `all_devices` (bool), `tags` (slugs), `devices` (IDs) and `stat
 
 ### Webhook
 
-After a scheduled run (and *Run now*) the summary is POSTed as JSON to the schedule's webhook URL: `event`, `schedule`, `target`, `commit`, `job`, `summary` (`total`, `succeeded`, `failed`, `skipped`, `changed`), `results` and `diffs`. With a secret, the header `X-Webhook-Signature: sha256=<HMAC-SHA256 of the body>` is added.
+After a scheduled run (and *Run now*) that changed at least one configuration, the summary is POSTed as JSON to the schedule's webhook URL (runs without changes only note this in their log): `event`, `schedule`, `target`, `commit`, `job`, `summary` (`total`, `succeeded`, `failed`, `skipped`, `changed`), `results` and `diffs`. With a secret, the header `X-Webhook-Signature: sha256=<HMAC-SHA256 of the body>` is added.
 
 ---
 

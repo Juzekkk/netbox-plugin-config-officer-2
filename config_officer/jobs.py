@@ -46,13 +46,14 @@ class _CollectionJobBase(JobRunner):
         return super().enqueue(*args, **kwargs)
 
     def _send_webhook(self, schedule, summary) -> None:
-        if schedule is not None and schedule.webhook_url:
-            payload = build_payload(
-                schedule.name, summary, ConfigRepository.from_settings(), self.job
-            )
-            self.logger.info(
-                f"Webhook: {send(schedule.webhook_url, schedule.webhook_secret, payload)}"
-            )
+        """POST the run summary to the schedule's webhook - only if a configuration changed."""
+        if schedule is None or not schedule.webhook_url:
+            return
+        if not summary.counts["changed"]:
+            self.logger.info("Webhook: not sent - no configuration changed")
+            return
+        payload = build_payload(schedule.name, summary, ConfigRepository.from_settings(), self.job)
+        self.logger.info(f"Webhook: {send(schedule.webhook_url, schedule.webhook_secret, payload)}")
 
     def _fail_if_nothing_worked(self, summary) -> None:
         counts = summary.counts
