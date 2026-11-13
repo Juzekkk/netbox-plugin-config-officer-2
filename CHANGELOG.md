@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.5.1 (2026-11-13)
+
+### Fix
+
+- **webhook**: send the run summary only when a configuration changed
+
 ## v0.5.0 (2026-11-04)
 
 ### Feat
