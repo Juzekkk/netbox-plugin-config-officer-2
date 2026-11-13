@@ -53,12 +53,24 @@ Other types: `test`, `ci`, `build`, `refactor`, `chore`. A breaking change gets 
 
 ## Releasing
 
+`main` only takes changes through pull requests, so the version bump goes through one too, and the tag is pushed after it is merged:
+
 ```bash
 git checkout main && git pull
+git checkout -b release
 poetry run cz bump --dry-run    # preview the new version and changelog entry
-poetry run cz bump              # update pyproject.toml + CHANGELOG.md, commit, tag vX.Y.Z
-git push --follow-tags          # GitHub Actions: build, publish to PyPI, create the GitHub release
+poetry run cz bump              # update pyproject.toml + CHANGELOG.md, commit, tag vX.Y.Z (locally)
+git push -u origin release      # the branch only - not the tag yet
 ```
+
+Merge the pull request with **Create a merge commit** (squash or rebase would replace the tagged commit), then:
+
+```bash
+git checkout main && git pull
+git push origin vX.Y.Z          # GitHub Actions: build, publish to PyPI, create the GitHub release
+```
+
+The release workflow refuses a tag whose commit is not on `main`. If the pull request was squashed or rebased anyway, move the tag onto the merged commit first: `git tag -f vX.Y.Z main`.
 
 The version is derived from the commits since the last release (while the plugin is 0.x):
 
